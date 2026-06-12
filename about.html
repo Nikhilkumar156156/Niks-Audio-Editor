@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- SEO Meta Tags -->
+    <title>About & Help | Niks Audio Editor - Spectral Repeat Detection Suite</title>
+    <meta name="description" content="Discover how the Niks Audio Editor uses advanced 8-band spectral analysis, log compression, and 8D subsequence DTW algorithms to identify speech stumbles and silence gaps online.">
+    <meta name="keywords" content="audio editor online, speech repeat detector, audio spectrogram matching, remove silence gaps, speech stumble remover, subsequence dtw audio, online wave editor, voice cleaner tool">
+    <meta name="author" content="Niks Audio Suite">
+    
+    <!-- Link main style sheet for global dark gradients and styling -->
+    <link rel="stylesheet" href="styles.css">
+    
+    <!-- Page Specific Styles overrides -->
+    <style>
+        body {
+            overflow-y: auto !important; /* Allow scroll since this is an article page */
+            height: auto;
+            min-height: 100vh;
+        }
+        .about-container {
+            max-width: 900px;
+            margin: 2rem auto 4rem auto;
+            padding: 0 1.5rem;
+        }
+        .about-card {
+            background: rgba(15, 15, 15, 0.7);
+            border: 1px solid rgba(255, 0, 50, 0.12);
+            border-radius: 12px;
+            padding: 2.5rem;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.8), 0 0 25px rgba(147, 51, 234, 0.05);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        .about-header {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 1rem;
+            margin-bottom: 1rem;
+        }
+        .about-header h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 40%, var(--primary-red) 80%, var(--primary-purple) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+        .about-card h2 {
+            font-family: 'Outfit', sans-serif;
+            color: #fff;
+            font-size: 1.4rem;
+            font-weight: 600;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 0.4rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .about-card h2 svg {
+            color: var(--primary-red);
+        }
+        .about-card p {
+            font-size: 0.95rem;
+            line-height: 1.6;
+            color: var(--text-muted);
+        }
+        .about-card ul {
+            padding-left: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .about-card li {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+        .about-card strong {
+            color: #fff;
+        }
+        .highlight-red {
+            color: var(--primary-red);
+            font-weight: 600;
+        }
+        .highlight-purple {
+            color: var(--primary-purple);
+            font-weight: 600;
+        }
+        .highlight-yellow {
+            color: var(--repeat-color);
+            font-weight: 600;
+        }
+        .highlight-green {
+            color: var(--final-color);
+            font-weight: 600;
+        }
+        .btn-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+            transition: all 0.2s ease;
+            width: fit-content;
+        }
+        .btn-back:hover {
+            color: var(--primary-red);
+            text-shadow: 0 0 8px var(--primary-red-glow);
+        }
+        .shortcut-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .shortcut-table th, .shortcut-table td {
+            padding: 0.8rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 0.9rem;
+        }
+        .shortcut-table th {
+            font-family: 'Outfit', sans-serif;
+            color: var(--primary-red);
+            font-weight: 600;
+            background: rgba(255, 0, 50, 0.06);
+            border-bottom: 1px solid rgba(255, 0, 50, 0.15);
+        }
+        .shortcut-table td {
+            color: var(--text-muted);
+        }
+        .shortcut-key {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+            padding: 0.2rem 0.5rem;
+            font-family: monospace;
+            font-size: 0.8rem;
+            color: #fff;
+            box-shadow: 0 2px 0 rgba(0,0,0,0.5);
+        }
+        .algo-step {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-left: 3px solid var(--primary-red);
+            padding: 1rem;
+            border-radius: 0 6px 6px 0;
+            margin-bottom: 1rem;
+        }
+        .algo-step h3 {
+            font-family: 'Outfit', sans-serif;
+            color: #fff;
+            font-size: 1.05rem;
+            margin-bottom: 0.5rem;
+        }
+        @media (max-width: 768px) {
+            .about-card {
+                padding: 1.5rem;
+            }
+            .about-header h1 {
+                font-size: 1.8rem;
+            }
+            .shortcut-table th, .shortcut-table td {
+                padding: 0.6rem 0.75rem;
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Panel -->
+    <header>
+        <div class="brand">
+            <span class="brand-dot"></span>
+            <h1>Niks Audio Editor</h1>
+        </div>
+        <div>
+            <a href="index.html" class="file-label-btn" style="text-decoration: none;">
+                ← Go to Editor
+            </a>
+        </div>
+    </header>
+ 
+    <div class="about-container">
+        <a href="index.html" class="btn-back" id="back-to-editor-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+            Back to Editor
+        </a>
+ 
+        <main class="about-card">
+            <!-- Header Section -->
+            <div class="about-header">
+                <h1>About Niks Audio Editor</h1>
+                <p><strong>Niks Audio Editor</strong> is a free online audio editor that works entirely in your browser. No downloads, no installations — just open the site and start editing.</p>
+                
+                <p style="margin-top: 1rem; font-weight: 600; color: #fff;">The editor provides professional-grade audio processing tools including:</p>
+                <ul style="margin: 0.75rem 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; padding-left: 1.25rem; list-style-type: disc;">
+                    <li>Gain, Fade In, Fade Out</li>
+                    <li>Noise Reduction</li>
+                    <li>Parametric and Graphic EQ</li>
+                    <li>Compressor and Hard Limiter</li>
+                    <li>Normalize</li>
+                    <li>Distortion and Reverb</li>
+                    <li>Change Speed, Reverse, Invert</li>
+                    <li>Remove Silence</li>
+                </ul>
+                
+                <p style="margin-top: 0.75rem;">All processing happens locally in your browser. Your audio files are never uploaded to any server, ensuring complete privacy.</p>
+                <p style="margin-top: 1rem;"><strong>Contact:</strong> <a href="mailto:enterentire5@gmail.com" class="highlight-red" style="text-decoration: none;">enterentire5@gmail.com</a></p>
+            </div>
+
+            <!-- Algorithmic Section -->
+            <section>
+                <h2>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                        <polyline points="2 17 12 22 22 17"></polyline>
+                        <polyline points="2 12 12 17 22 12"></polyline>
+                    </svg>
+                    How the AI Repeat Detector Works
+                </h2>
+                <p>Traditional audio repeat detectors use 1D volume curves, which lead to false positives (matching completely different words simply because their volume profiles look similar). The Niks Audio Editor implements a state-of-the-art <strong>8-Band DFT Spectrogram Matching and 8D Subsequence DTW</strong> alignment pipeline:</p>
+                
+                <div class="algo-step" style="margin-top: 1rem;">
+                    <h3>1. 8-Band Discrete Fourier Transform (DFT)</h3>
+                    <p>When you click "Scan for Repeats", the buffer is split into speech segments. For each segment, the editor computes short-time spectral frames at 20Hz. For each frame, we extract magnitudes at 8 log-spaced frequency bands (150Hz to 8kHz) using precomputed cosine/sine windowing tables. This extracts pitch, vowel formants, and sibilant frequencies, forming a unique frequency fingerprint.</p>
+                </div>
+
+                <div class="algo-step">
+                    <h3>2. Logarithmic Compression & Z-Score Band Normalization</h3>
+                    <p>Spectral magnitudes are logarithmically scaled: <code>Y = log10(1 + 1000 * |X|)</code> to align with human hearing dynamics. We then apply z-score normalization on each frequency band independently. This removes absolute volume differences, allowing a whisper and a shout of the same word to align perfectly.</p>
+                </div>
+
+                <div class="algo-step">
+                    <h3>3. 8-Dimensional Subsequence DTW (sDTW)</h3>
+                    <p>We align the two multi-dimensional spectrograms using Subsequence Dynamic Time Warping. The distance between frames is computed as the 8D Euclidean distance. Subsequence alignment matches the shorter query pattern <em>inside</em> the longer clip, detecting stumbles even if surrounded by breaths, background clicks, or extra speech.</p>
+                </div>
+
+                <div class="algo-step">
+                    <h3>4. Calibrated Decision Thresholds</h3>
+                    <p>To avoid false positives on common filler words (like "the" or "and"), candidates are filtered using strict rules: the segment must be at least 1.0 second long, the shorter candidate must be at least 45% of the longer candidate's duration, raw RMS energy must exceed 0.015, and the volume dynamics must match by at least 40%.</p>
+                </div>
+            </section>
+
+            <!-- User Manual & Timeline colorcodes -->
+            <section>
+                <h2>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="16" x2="12" y2="12"></line>
+                        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                    Timeline Color Codes
+                </h2>
+                <p>The timeline draws clips using distinctive glassmorphism colors with soft neon glow outlines:</p>
+                <ul>
+                    <li><strong class="highlight-purple">Blue Segment:</strong> Normal speech segment. Drag, trim, fade, or speed it up.</li>
+                    <li><strong class="highlight-red">Red Segment:</strong> Automatically scanned silent gap. Double-click to open actions, or click "Delete All Gaps" to clear them.</li>
+                    <li><strong class="highlight-yellow">Yellow Segment:</strong> Detected speech stumble/repeat. These are the redundant takes that should be trimmed or deleted.</li>
+                    <li><strong class="highlight-green">Green Segment:</strong> The final, clean speech take. This is the keeper track that remains on the timeline.</li>
+                </ul>
+            </section>
+
+            <!-- Keyboard Shortcuts -->
+            <section>
+                <h2>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                        <rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect>
+                        <line x1="6" y1="8" x2="6" y2="8"></line>
+                        <line x1="10" y1="8" x2="10" y2="8"></line>
+                        <line x1="14" y1="8" x2="14" y2="8"></line>
+                        <line x1="18" y1="8" x2="18" y2="8"></line>
+                        <line x1="6" y1="12" x2="6" y2="12"></line>
+                        <line x1="18" y1="12" x2="18" y2="12"></line>
+                        <line x1="7" y1="16" x2="17" y2="16"></line>
+                    </svg>
+                    Keyboard Shortcuts
+                </h2>
+                <p>For high-efficiency editing, the Niks Audio Editor binds standard keys for instant timeline actions:</p>
+                
+                <table class="shortcut-table" id="shortcuts-reference-table">
+                    <thead>
+                        <tr>
+                            <th>Action</th>
+                            <th>Keyboard Shortcut</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Play / Pause</strong></td>
+                            <td><span class="shortcut-key">Space</span></td>
+                            <td>Toggles playback of the timeline.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Cut Clip</strong></td>
+                            <td><span class="shortcut-key">Ctrl + X</span></td>
+                            <td>Copies selected segment and ripple-deletes it.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Copy Clip</strong></td>
+                            <td><span class="shortcut-key">Ctrl + C</span></td>
+                            <td>Copies selected segment properties to virtual clipboard.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Paste Clip</strong></td>
+                            <td><span class="shortcut-key">Ctrl + V</span></td>
+                            <td>Pastes clipboard segment at playhead (with auto-split and push).</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Split Segment</strong></td>
+                            <td><span class="shortcut-key">S</span> or <span class="shortcut-key">Ctrl + K</span></td>
+                            <td>Slices the selected/intersected segment in two at playhead.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Quick Delete</strong></td>
+                            <td><span class="shortcut-key">Delete</span> or <span class="shortcut-key">Backspace</span></td>
+                            <td>Removes the selected segment instantly from the timeline.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Undo</strong></td>
+                            <td><span class="shortcut-key">Ctrl + Z</span></td>
+                            <td>Reverts the last timeline modification.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Redo</strong></td>
+                            <td><span class="shortcut-key">Ctrl + Y</span></td>
+                            <td>Re-applies the last undone change.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Horizontal Scroll</strong></td>
+                            <td><span class="shortcut-key">Shift + Scroll</span></td>
+                            <td>Scrolls the timeline view horizontally.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Zoom In / Out</strong></td>
+                            <td><span class="shortcut-key">Scroll Wheel</span></td>
+                            <td>Zooms timeline centered on the cursor position.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- FAQs and Search Queries -->
+            <section>
+                <h2>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                    </svg>
+                    Frequently Asked Questions
+                </h2>
+                
+                <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+                    <div>
+                        <strong>Q: Is my audio sent to a server?</strong>
+                        <p>A: No. All audio analysis, speech segmentation, gap removal, spectral DTW alignment, and exporting (WAV, MP3, AAC) are done 100% locally in your browser. Your data never leaves your device.</p>
+                    </div>
+                    <div>
+                        <strong>Q: Why are some segments red?</strong>
+                        <p>A: Red segments represent silent gaps detected by the silence scanner. You can remove them individually or click "Delete All Gaps" to perform a ripple delete, which pulls all subsequent audio clips back to maintain a continuous, gap-free speech track.</p>
+                    </div>
+                    <div>
+                        <strong>Q: How do I export in MP3 or AAC format?</strong>
+                        <p>A: Choose your desired format (WAV, MP3, or AAC) from the dropdown selector in the right-hand footer toolbar, then click the "Export" button. The MP3 files are encoded using lamejs, and AAC files use the native WebCodecs API.</p>
+                    </div>
+                    <div>
+                        <strong>Q: Can I edit on my Android or tablet?</strong>
+                        <p>A: Yes! The editor features a responsive bottom settings drawer, touch-drag zoom and scroll gestures, larger range sliders, and root-level dialog positioning, optimized for mobile screens.</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+</body>
+</html>
