@@ -63,6 +63,7 @@ class AppController {
         this.copyBtn = document.getElementById('copy-btn');
         this.pasteBtn = document.getElementById('paste-btn');
         this.splitBtn = document.getElementById('split-btn');
+        this.insertGapBtn = document.getElementById('insert-gap-btn');
         this.exportFormatSelect = document.getElementById('export-format');
         this.exportBtn = document.getElementById('export-btn');
         
@@ -389,6 +390,8 @@ class AppController {
                 if (scannerPanelCard) scannerPanelCard.classList.remove('modal-view');
                 const urlModal = document.getElementById('url-modal');
                 if (urlModal) urlModal.classList.remove('show');
+                const gapModal = document.getElementById('gap-modal');
+                if (gapModal) gapModal.classList.remove('show');
                 modalBackdrop.style.display = 'none';
                 document.body.style.overflow = '';
             });
@@ -489,6 +492,58 @@ class AppController {
         this.pasteBtn.addEventListener('click', () => this.pasteAtPlayhead());
         this.splitBtn.addEventListener('click', () => this.splitAtPlayhead());
 
+        this.insertGapBtn.addEventListener('click', () => {
+            const gapModal = document.getElementById('gap-modal');
+            const gapDurationInput = document.getElementById('gap-duration-input');
+            const modalBackdrop = document.getElementById('modal-backdrop');
+            if (gapModal) {
+                gapModal.classList.add('show');
+                if (modalBackdrop) modalBackdrop.style.display = 'block';
+                document.body.style.overflow = 'hidden';
+                if (gapDurationInput) {
+                    gapDurationInput.value = "1.0";
+                    setTimeout(() => gapDurationInput.focus(), 50);
+                }
+            }
+        });
+
+        const closeGapModalBtn = document.getElementById('close-gap-modal');
+        if (closeGapModalBtn) {
+            closeGapModalBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const gapModal = document.getElementById('gap-modal');
+                if (gapModal) gapModal.classList.remove('show');
+                const modalBackdrop = document.getElementById('modal-backdrop');
+                if (modalBackdrop) modalBackdrop.style.display = 'none';
+                document.body.style.overflow = '';
+            });
+        }
+
+        const confirmGapBtn = document.getElementById('confirm-gap-btn');
+        const gapDurationInput = document.getElementById('gap-duration-input');
+        if (confirmGapBtn && gapDurationInput) {
+            confirmGapBtn.addEventListener('click', () => {
+                const duration = parseFloat(gapDurationInput.value);
+                if (isNaN(duration) || duration <= 0) {
+                    alert("Please enter a valid positive duration in seconds.");
+                    return;
+                }
+                this.insertGapAtPlayhead(duration);
+                const gapModal = document.getElementById('gap-modal');
+                if (gapModal) gapModal.classList.remove('show');
+                const modalBackdrop = document.getElementById('modal-backdrop');
+                if (modalBackdrop) modalBackdrop.style.display = 'none';
+                document.body.style.overflow = '';
+            });
+
+            gapDurationInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    confirmGapBtn.click();
+                }
+            });
+        }
+
         // Keyboard Shortcuts (Space key to play/pause, Ctrl+X, Ctrl+C, Ctrl+V, S, Delete)
         window.addEventListener('keydown', (e) => {
             const active = document.activeElement;
@@ -520,6 +575,13 @@ class AppController {
             else if (e.key.toLowerCase() === 's' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
                 e.preventDefault();
                 this.splitAtPlayhead();
+            }
+            // G key to trigger Insert Gap Modal
+            else if (e.key.toLowerCase() === 'g') {
+                if (this.insertGapBtn && !this.insertGapBtn.disabled) {
+                    e.preventDefault();
+                    this.insertGapBtn.click();
+                }
             }
             // Delete or Backspace to delete selected clip
             else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -1055,6 +1117,10 @@ class AppController {
             return playhead > c.timelineStart && playhead < c.timelineStart + duration;
         });
         this.splitBtn.disabled = !canSplit;
+
+        if (this.insertGapBtn) {
+            this.insertGapBtn.disabled = !this.originalBuffer;
+        }
     }
 
     /**
@@ -1099,6 +1165,64 @@ class AppController {
         this.clips.sort((a, b) => a.timelineStart - b.timelineStart);
 
         this.timeline.selectedClip = leftClip; // Select left split part
+        this.timeline.setClips(this.clips);
+        this.saveHistory();
+        this.renderAndSyncAudio();
+        this.updateCutCopyPasteUI();
+    }
+
+    /**
+     * Insert a silent gap at the playhead by shifting subsequent elements to the right.
+     */
+    insertGapAtPlayhead(duration) {
+        if (!this.originalBuffer) return;
+        const playhead = this.timeline.playheadTime;
+
+        // 1. Check if playhead intersects an active segment (if so, split it)
+        const activeClips = this.clips.filter(c => !c.deleted);
+        const intersectingClip = activeClips.find(c => {
+            const end = c.timelineStart + (c.originalEnd - c.originalStart) / (c.speed || 1.0);
+            return playhead > c.timelineStart && playhead < end;
+        });
+
+        if (intersectingClip) {
+            const splitSpeed = intersectingClip.speed || 1.0;
+            const timeOffset = playhead - intersectingClip.timelineStart;
+            const splitOffset = intersectingClip.originalStart + timeOffset * splitSpeed;
+
+            // Left part
+            const leftClip = {
+                ...intersectingClip,
+                id: this.nextClipId++,
+                originalEnd: splitOffset,
+                boundsMax: splitOffset
+            };
+
+            // Right part
+            const rightClip = {
+                ...intersectingClip,
+                id: this.nextClipId++,
+                originalStart: splitOffset,
+                timelineStart: playhead,
+                boundsMin: splitOffset
+            };
+
+            intersectingClip.deleted = true;
+            this.clips.push(leftClip, rightClip);
+        }
+
+        // 2. Ripple shift all active segments starting at or after playhead to the right
+        this.clips.forEach(c => {
+            if (!c.deleted && c.timelineStart >= playhead) {
+                c.timelineStart += duration;
+            }
+        });
+
+        // 3. Sort clips and clean repeat groups
+        this.clips.sort((a, b) => a.timelineStart - b.timelineStart);
+        this.cleanRepeatGroups();
+
+        // 4. Update timeline and audio engine
         this.timeline.setClips(this.clips);
         this.saveHistory();
         this.renderAndSyncAudio();
