@@ -745,7 +745,7 @@ input:checked + .slider:before {
 }
 
 /* URL Loader Modal */
-#url-modal {
+#url-modal, #gap-modal {
   display: none;
   position: fixed;
   top: 50%;
@@ -762,7 +762,7 @@ input:checked + .slider:before {
   box-sizing: border-box;
 }
 
-#url-modal.show {
+#url-modal.show, #gap-modal.show {
   display: block;
 }
 
@@ -1245,6 +1245,7 @@ input:checked + .slider:before {
   #copy-btn { order: 6; }
   #paste-btn { order: 7; }
   #split-btn { order: 8; }
+  #insert-gap-btn { order: 9; }
 
   /* Adjust tap targets on mobile for touch gestures */
   .btn-primary, .btn-secondary, .file-label-btn {
