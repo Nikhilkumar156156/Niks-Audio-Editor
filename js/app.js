@@ -78,6 +78,21 @@ class AppController {
         
         this.zoomInBtn = document.getElementById('zoom-in-btn');
         this.zoomOutBtn = document.getElementById('zoom-out-btn');
+
+        // Video & Mode Switcher Handles
+        this.videoPreviewCard = document.getElementById('video-preview-card');
+        this.videoPlayer = document.getElementById('video-preview-player');
+        this.videoGapOverlay = document.getElementById('video-gap-overlay');
+        this.toggleVideoSizeBtn = document.getElementById('toggle-video-size-btn');
+        this.modeToggleContainer = document.getElementById('mode-toggle-container');
+        this.modeAudioBtn = document.getElementById('mode-audio-btn');
+        this.modeVideoBtn = document.getElementById('mode-video-btn');
+        this.workspaceContent = document.getElementById('workspace-content');
+
+        this.isVideoLoaded = false;
+        this.videoObjectUrl = null;
+        this.lastActiveVideoClipId = null;
+        this.currentWorkspaceMode = 'audio';
     }
 
     init() {
@@ -85,6 +100,19 @@ class AppController {
         
         // Setup initial portals layout
         this.handleResponsivePortals();
+
+        if (this.toggleVideoSizeBtn && this.videoPreviewCard) {
+            this.toggleVideoSizeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const container = this.videoPreviewCard.querySelector('.video-container');
+                if (container) container.classList.toggle('expanded');
+            });
+        }
+
+        if (this.modeAudioBtn && this.modeVideoBtn) {
+            this.modeAudioBtn.addEventListener('click', () => this.setWorkspaceMode('audio'));
+            this.modeVideoBtn.addEventListener('click', () => this.setWorkspaceMode('video'));
+        }
 
         this.setupBindings();
         this.setupTimelineEvents();
@@ -95,6 +123,24 @@ class AppController {
             this.handleResponsivePortals();
             this.timeline.resize();
         });
+    }
+
+    setWorkspaceMode(mode) {
+        this.currentWorkspaceMode = mode;
+        if (mode === 'video' && this.isVideoLoaded) {
+            if (this.modeAudioBtn) this.modeAudioBtn.classList.remove('active');
+            if (this.modeVideoBtn) this.modeVideoBtn.classList.add('active');
+            if (this.workspaceContent) this.workspaceContent.classList.add('video-mode');
+            if (this.videoPreviewCard) this.videoPreviewCard.style.display = 'flex';
+        } else {
+            if (this.modeAudioBtn) this.modeAudioBtn.classList.add('active');
+            if (this.modeVideoBtn) this.modeVideoBtn.classList.remove('active');
+            if (this.workspaceContent) this.workspaceContent.classList.remove('video-mode');
+            if (this.videoPreviewCard) this.videoPreviewCard.style.display = 'none';
+        }
+        setTimeout(() => {
+            if (this.timeline) this.timeline.resize();
+        }, 50);
     }
 
     handleResponsivePortals() {
@@ -222,6 +268,9 @@ class AppController {
         this.playBtn.addEventListener('click', () => {
             if (window.audioEngine.isPlaying) {
                 window.audioEngine.pause();
+                if (this.isVideoLoaded && this.videoPlayer) {
+                    this.videoPlayer.pause();
+                }
                 this.playBtn.innerHTML = `
                     <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
                         <path d="M8 5v14l11-7z"/>
@@ -234,6 +283,9 @@ class AppController {
 
         this.stopBtn.addEventListener('click', () => {
             window.audioEngine.stop();
+            if (this.isVideoLoaded && this.videoPlayer) {
+                this.videoPlayer.pause();
+            }
             this.playBtn.innerHTML = `
                 <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
                     <path d="M8 5v14l11-7z"/>
@@ -650,16 +702,18 @@ class AppController {
         });
     }
 
-    // Load a local Audio File
+    // Load a local Audio or Video File
     async loadFile(file) {
-        this.showLoadingState(true, "Decoding audio file...");
+        const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(file.name);
+        this.showLoadingState(true, isVideo ? "Extracting video audio track & decoding..." : "Decoding audio file...");
         try {
             const arrayBuf = await file.arrayBuffer();
             const audioBuf = await window.audioEngine.decodeAudio(arrayBuf);
-            this.setNewAudioBuffer(audioBuf);
+            const videoUrl = isVideo ? URL.createObjectURL(file) : null;
+            this.setNewAudioBuffer(audioBuf, isVideo, videoUrl);
         } catch (err) {
             console.error("Error decoding file:", err);
-            alert("Could not load file. Please check that it is a valid audio file.");
+            alert("Could not load file. Please check that it is a valid audio or video file.");
         } finally {
             this.showLoadingState(false);
         }
@@ -667,16 +721,17 @@ class AppController {
 
     // Load from url
     async loadUrl(url) {
-        this.showLoadingState(true, "Downloading audio...");
+        const isVideo = /\.(mp4|webm|mov|mkv|avi)($|\?)/i.test(url);
+        this.showLoadingState(true, isVideo ? "Downloading video & decoding audio..." : "Downloading audio...");
         try {
             const response = await fetch(url);
             if (!response.ok) throw new Error("HTTP error " + response.status);
             const arrayBuf = await response.arrayBuffer();
             const audioBuf = await window.audioEngine.decodeAudio(arrayBuf);
-            this.setNewAudioBuffer(audioBuf);
+            this.setNewAudioBuffer(audioBuf, isVideo, url);
         } catch (err) {
             console.error("Error fetching URL:", err);
-            alert("Could not fetch or decode audio from URL. Ensure CORS headers are enabled.");
+            alert("Could not fetch or decode media from URL. Ensure CORS headers are enabled.");
         } finally {
             this.showLoadingState(false);
         }
@@ -691,7 +746,7 @@ class AppController {
         `;
         window.audioEngine.stop();
         await window.audioEngine.startRecording((audioBuf) => {
-            this.setNewAudioBuffer(audioBuf);
+            this.setNewAudioBuffer(audioBuf, false, null);
         });
     }
 
@@ -705,9 +760,27 @@ class AppController {
     }
 
     // Set a newly loaded or recorded buffer as the project source
-    setNewAudioBuffer(audioBuffer) {
+    setNewAudioBuffer(audioBuffer, isVideo = false, videoUrl = null) {
         this.originalBuffer = audioBuffer;
         
+        if (this.videoObjectUrl && this.videoObjectUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(this.videoObjectUrl);
+        }
+        this.videoObjectUrl = videoUrl;
+
+        if (isVideo && videoUrl && this.videoPlayer) {
+            this.isVideoLoaded = true;
+            this.videoPlayer.src = videoUrl;
+            this.videoPlayer.load();
+            if (this.modeToggleContainer) this.modeToggleContainer.style.display = 'flex';
+            this.setWorkspaceMode('video');
+        } else {
+            this.isVideoLoaded = false;
+            if (this.videoPlayer) this.videoPlayer.src = '';
+            if (this.modeToggleContainer) this.modeToggleContainer.style.display = 'none';
+            this.setWorkspaceMode('audio');
+        }
+
         // Hide empty state placeholder
         const emptyState = document.getElementById('empty-state');
         if (emptyState) {
@@ -763,6 +836,10 @@ class AppController {
             </svg><span class="btn-text"> Pause</span>
         `;
 
+        if (this.isVideoLoaded && this.videoPlayer) {
+            this.syncVideoToPlayhead(offset);
+        }
+
         window.audioEngine.play(
             offset,
             (currentTime) => {
@@ -772,6 +849,9 @@ class AppController {
             },
             () => {
                 // Completed playback
+                if (this.isVideoLoaded && this.videoPlayer) {
+                    this.videoPlayer.pause();
+                }
                 this.playBtn.innerHTML = `
                     <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
                         <path d="M8 5v14l11-7z"/>
@@ -1352,6 +1432,18 @@ class AppController {
                     blob = window.audioEngine.exportMp3(window.audioEngine.renderedBuffer);
                 } else if (format === 'aac') {
                     blob = await window.audioEngine.exportAac(window.audioEngine.renderedBuffer);
+                } else if (format === 'webm' || format === 'mp4') {
+                    if (!this.isVideoLoaded || !this.videoPlayer) {
+                        alert("Exporting a video file requires an imported video. Please load a video file.");
+                        this.showLoadingState(false);
+                        return;
+                    }
+                    blob = await window.audioEngine.exportVideoTimeline(
+                        this.videoPlayer,
+                        this.clips,
+                        window.audioEngine.renderedBuffer,
+                        format === 'mp4' ? 'video/mp4' : 'video/webm'
+                    );
                 } else {
                     blob = window.audioEngine.exportWav(window.audioEngine.renderedBuffer);
                 }
@@ -1378,6 +1470,58 @@ class AppController {
         }, 50);
     }
 
+    syncVideoToPlayhead(time) {
+        if (!this.isVideoLoaded || !this.videoPlayer) return;
+
+        const isPlaying = window.audioEngine.isPlaying;
+        const activeClips = this.clips.filter(c => !c.deleted);
+        const activeClip = activeClips.find(c => {
+            const dur = (c.originalEnd - c.originalStart) / (c.speed || 1.0);
+            return time >= c.timelineStart && time < c.timelineStart + dur;
+        });
+
+        if (activeClip) {
+            if (this.videoGapOverlay) this.videoGapOverlay.style.display = 'none';
+            const speed = activeClip.speed || 1.0;
+            const timeOffset = time - activeClip.timelineStart;
+            const targetVideoTime = activeClip.originalStart + timeOffset * speed;
+
+            if (this.videoPlayer.playbackRate !== speed) {
+                this.videoPlayer.playbackRate = speed;
+            }
+
+            if (isPlaying) {
+                if (this.videoPlayer.paused) {
+                    if (Math.abs(this.videoPlayer.currentTime - targetVideoTime) > 0.05) {
+                        this.videoPlayer.currentTime = targetVideoTime;
+                    }
+                    this.videoPlayer.play().catch(() => {});
+                    this.lastActiveVideoClipId = activeClip.id;
+                } else {
+                    const clipChanged = this.lastActiveVideoClipId !== activeClip.id;
+                    const drift = Math.abs(this.videoPlayer.currentTime - targetVideoTime);
+                    if (clipChanged || drift > 0.25) {
+                        this.videoPlayer.currentTime = targetVideoTime;
+                        this.lastActiveVideoClipId = activeClip.id;
+                    }
+                }
+            } else {
+                if (!this.videoPlayer.paused) {
+                    this.videoPlayer.pause();
+                }
+                if (Math.abs(this.videoPlayer.currentTime - targetVideoTime) > 0.03) {
+                    this.videoPlayer.currentTime = targetVideoTime;
+                }
+            }
+        } else {
+            if (this.videoGapOverlay) this.videoGapOverlay.style.display = 'flex';
+            if (!this.videoPlayer.paused) {
+                this.videoPlayer.pause();
+            }
+            this.lastActiveVideoClipId = null;
+        }
+    }
+
     updateTimeDisplay(sec) {
         const totalSec = window.audioEngine.renderedBuffer ? window.audioEngine.renderedBuffer.duration : 0;
         
@@ -1393,6 +1537,8 @@ class AppController {
         } else {
             this.timeDisplay.innerText = formatTime(sec);
         }
+
+        this.syncVideoToPlayhead(sec);
     }
 
     showLoadingState(show, text = "") {

@@ -647,7 +647,117 @@ class AudioEngine {
             }).catch(reject);
         });
     }
+
+    /**
+     * Export the video timeline and rendered audio buffer as a Video Blob (WebM or MP4) using MediaRecorder.
+     * @param {HTMLVideoElement} videoElement
+     * @param {Array<Object>} clips
+     * @param {AudioBuffer} renderedAudioBuffer
+     * @param {string} mimeType - 'video/webm' or 'video/mp4'
+     * @returns {Promise<Blob>}
+     */
+    async exportVideoTimeline(videoElement, clips, renderedAudioBuffer, mimeType = 'video/webm') {
+        if (!videoElement || !videoElement.src) {
+            throw new Error("No video file loaded to export.");
+        }
+
+        return new Promise((resolve, reject) => {
+            try {
+                const width = videoElement.videoWidth || 1280;
+                const height = videoElement.videoHeight || 720;
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const bufferSource = audioCtx.createBufferSource();
+                bufferSource.buffer = renderedAudioBuffer;
+
+                const dest = audioCtx.createMediaStreamDestination();
+                bufferSource.connect(dest);
+
+                const canvasStream = canvas.captureStream(30);
+                const combinedStream = new MediaStream([
+                    ...canvasStream.getVideoTracks(),
+                    ...dest.stream.getAudioTracks()
+                ]);
+
+                let targetMime = mimeType;
+                if (!MediaRecorder.isTypeSupported(targetMime)) {
+                    if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) {
+                        targetMime = 'video/webm;codecs=vp9,opus';
+                    } else if (MediaRecorder.isTypeSupported('video/webm')) {
+                        targetMime = 'video/webm';
+                    } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+                        targetMime = 'video/mp4';
+                    }
+                }
+
+                const recorder = new MediaRecorder(combinedStream, { mimeType: targetMime });
+                const recordedChunks = [];
+
+                recorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) recordedChunks.push(e.data);
+                };
+
+                recorder.onstop = () => {
+                    audioCtx.close();
+                    const blob = new Blob(recordedChunks, { type: targetMime });
+                    resolve(blob);
+                };
+
+                recorder.onerror = (e) => reject(e);
+
+                const duration = renderedAudioBuffer.duration;
+                const fps = 30;
+                const intervalSec = 1 / fps;
+                let currentTime = 0;
+
+                recorder.start();
+                bufferSource.start(0);
+
+                const activeClips = clips.filter(c => !c.deleted).sort((a, b) => a.timelineStart - b.timelineStart);
+
+                const processFrame = () => {
+                    if (currentTime >= duration) {
+                        recorder.stop();
+                        try { bufferSource.stop(); } catch (err) {}
+                        return;
+                    }
+
+                    const activeClip = activeClips.find(c => {
+                        const clipDur = (c.originalEnd - c.originalStart) / (c.speed || 1.0);
+                        return currentTime >= c.timelineStart && currentTime < c.timelineStart + clipDur;
+                    });
+
+                    if (activeClip) {
+                        const speed = activeClip.speed || 1.0;
+                        const timeOffset = currentTime - activeClip.timelineStart;
+                        const videoTime = activeClip.originalStart + timeOffset * speed;
+                        videoElement.currentTime = videoTime;
+                        ctx.drawImage(videoElement, 0, 0, width, height);
+                    } else {
+                        ctx.fillStyle = '#0a0a0a';
+                        ctx.fillRect(0, 0, width, height);
+                        ctx.fillStyle = '#ff0033';
+                        ctx.font = 'bold 24px Outfit, sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('Silence Gap', width / 2, height / 2);
+                    }
+
+                    currentTime += intervalSec;
+                    setTimeout(processFrame, intervalSec * 1000);
+                };
+
+                processFrame();
+            } catch (err) {
+                reject(err);
+            }
+        });
+    }
 }
 
 // Export to window
 window.audioEngine = new AudioEngine();
+

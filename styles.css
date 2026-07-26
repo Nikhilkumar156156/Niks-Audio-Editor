@@ -1036,10 +1036,7 @@ input:checked + .slider:before {
   }
 
   .mobile-top-actions {
-    display: flex !important;
-    justify-content: flex-start;
-    padding: 0.75rem 1rem;
-    background: transparent;
+    display: none !important;
   }
 
   .mobile-only-drawer {
@@ -1102,11 +1099,15 @@ input:checked + .slider:before {
     order: 1 !important;
     grid-row: 1;
     flex: 1;
+    display: flex;
+    flex-direction: column;
     min-height: 0;
   }
 
   .timeline-wrapper {
-    min-height: 180px; /* Waveform never clips below 180px */
+    flex: 1;
+    height: 100%;
+    min-height: 200px; /* Full waveform expansion on mobile */
   }
 
   .panel-card {
@@ -1350,4 +1351,213 @@ input:checked + .slider:before {
   border-radius: 0;
   box-shadow: none;
 }
+
+/* Video Preview Component */
+.video-preview-card {
+  margin-bottom: 0.75rem;
+  background: rgba(15, 15, 15, 0.85);
+  border: 1px solid rgba(255, 0, 50, 0.25);
+  border-radius: 10px;
+  backdrop-filter: blur(12px);
+  padding: 0.5rem 0.75rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 0 15px rgba(255, 0, 50, 0.1);
+  transition: all 0.3s ease;
+}
+
+.video-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.video-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.video-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--primary-red);
+  box-shadow: 0 0 8px var(--primary-red);
+  animation: pulse-ring 2s infinite;
+}
+
+.video-title-text {
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+
+.video-container {
+  position: relative;
+  width: 100%;
+  height: 180px;
+  max-height: 320px;
+  background: #000;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.video-container.expanded {
+  height: 280px;
+}
+
+#video-preview-player {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.video-gap-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 10, 10, 0.85);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--primary-red);
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 600;
+  backdrop-filter: blur(4px);
+  z-index: 5;
+}
+
+/* Header Controls Group (Mode Switcher + Mobile Detection Settings) */
+.header-controls-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.mobile-detection-btn {
+  display: none !important;
+}
+
+.mode-toggle-container {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  padding: 0.15rem 0.25rem;
+}
+
+.mode-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: 'Outfit', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.3rem 0.75rem;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-btn:hover {
+  color: #fff;
+}
+
+.mode-btn.active {
+  background: var(--primary-red);
+  color: #fff;
+  box-shadow: 0 0 10px var(--primary-red-glow);
+}
+
+/* Workspace Content Layouts */
+.workspace-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+/* Video Mode Side-by-Side Grid for Desktop */
+.workspace-content.video-mode {
+  display: grid;
+  grid-template-columns: minmax(380px, 460px) 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.workspace-content.video-mode .video-preview-card {
+  margin-bottom: 0;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-content.video-mode .video-container {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  min-height: 220px;
+  max-height: 380px;
+  background: #000;
+  border-radius: 6px;
+  position: relative;
+  overflow: hidden;
+}
+
+.workspace-content.video-mode .video-container.expanded {
+  aspect-ratio: auto;
+  height: 340px;
+}
+
+#video-preview-player {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  display: block;
+}
+
+@media (max-width: 1024px) {
+  .mobile-detection-btn {
+    display: inline-flex !important;
+    font-size: 0.75rem !important;
+    padding: 0.35rem 0.65rem !important;
+    height: 28px !important;
+    line-height: 28px !important;
+    white-space: nowrap;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .workspace-content.video-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .workspace-content.video-mode .video-container {
+    aspect-ratio: 16 / 9;
+    height: auto;
+    min-height: 140px;
+    max-height: 180px;
+  }
+}
+
+
+
 

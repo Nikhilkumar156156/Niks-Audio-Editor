@@ -19,6 +19,16 @@
             <a href="about.html" class="nav-link" id="nav-about-link">About & Help</a>
         </nav>
 
+        <!-- Header Controls Row (View Mode Switcher & Mobile Detection Settings Button) -->
+        <div id="header-controls-group" class="header-controls-group">
+            <button id="mobile-open-scanner-modal-btn" class="btn-primary mobile-detection-btn">DETECTION SETTINGS</button>
+            
+            <div id="mode-toggle-container" class="mode-toggle-container" style="display: none;">
+                <button id="mode-audio-btn" class="mode-btn active" title="Audio Only View">🎵 Audio</button>
+                <button id="mode-video-btn" class="mode-btn" title="Video Sync View">🎬 Video</button>
+            </div>
+        </div>
+
         <div class="loader-panel">
             <button id="open-url-modal-btn" class="btn-secondary">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
@@ -32,9 +42,9 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
                 </svg>
-                Import Audio
+                Import Media
             </label>
-            <input type="file" id="audio-file" accept="audio/*">
+            <input type="file" id="audio-file" accept="audio/*,video/*">
         </div>
     </header>
 
@@ -154,6 +164,8 @@
                     <option value="wav">WAV</option>
                     <option value="mp3">MP3</option>
                     <option value="aac">AAC</option>
+                    <option value="webm">WebM Video</option>
+                    <option value="mp4">MP4 Video</option>
                 </select>
             </section>
 
@@ -293,39 +305,63 @@
 
         <!-- Main Timeline & Transport panel -->
         <main class="main-workspace">
-            
-            <!-- Mobile-only top actions bar -->
-            <div class="mobile-top-actions">
-                <button id="mobile-open-scanner-modal-btn" class="btn-primary">DETECTION SETTINGS</button>
-            </div>
-            
-            <!-- Timeline Canvas wrapper -->
-            <div class="timeline-wrapper" id="timeline-wrapper">
-                <canvas id="timeline-canvas"></canvas>
-                
-                <!-- Empty State Placeholder (gorgeous red/purple pulse) -->
-                <div id="empty-state" class="empty-state">
-                    <div class="empty-state-card">
-                        <div class="empty-icon-container">
-                            <div class="empty-wave-pulse red"></div>
-                            <div class="empty-wave-pulse purple"></div>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="44" height="44" class="empty-icon">
-                                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-                                <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M4 22h16"/>
-                            </svg>
+
+            <!-- Workspace Content Container -->
+            <div class="workspace-content" id="workspace-content">
+
+                <!-- Video Preview Container (active in Video Mode) -->
+                <div id="video-preview-card" class="video-preview-card" style="display: none;">
+                    <div class="video-preview-header">
+                        <div class="video-title-wrap">
+                            <span class="video-indicator-dot"></span>
+                            <span class="video-title-text">Video Sync Preview</span>
                         </div>
-                        <h3>No Audio Loaded</h3>
-                        <p>Drag & drop an audio file here, load a remote URL, or record live using your microphone.</p>
-                        
-                        <div class="empty-actions">
-                            <button class="btn-primary" onclick="document.getElementById('audio-file').click();">
-                                Import File
-                            </button>
-                            <button class="btn-primary" id="empty-rec-btn" style="background: linear-gradient(135deg, rgba(255,0,50,0.1) 0%, rgba(0,0,0,0.5) 100%); border: 1px solid var(--primary-red); color: var(--primary-red); box-shadow: none;">
-                                Record Live
-                            </button>
+                        <button id="toggle-video-size-btn" class="btn-icon" title="Toggle Video Scale" style="width: 26px; height: 26px; padding: 0;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="video-container">
+                        <video id="video-preview-player" playsinline muted preload="auto"></video>
+                        <div id="video-gap-overlay" class="video-gap-overlay" style="display: none;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                <path d="M10 4v16M10 12h8M15 8l4 4-4 4"/>
+                            </svg>
+                            <span>Silence Gap (Video Paused)</span>
                         </div>
                     </div>
+                </div>
+                
+                <!-- Timeline Canvas wrapper -->
+                <div class="timeline-wrapper" id="timeline-wrapper">
+                    <canvas id="timeline-canvas"></canvas>
+                    
+                    <!-- Empty State Placeholder (gorgeous red/purple pulse) -->
+                    <div id="empty-state" class="empty-state">
+                        <div class="empty-state-card">
+                            <div class="empty-icon-container">
+                                <div class="empty-wave-pulse red"></div>
+                                <div class="empty-wave-pulse purple"></div>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="44" height="44" class="empty-icon">
+                                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                                    <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M4 22h16"/>
+                                </svg>
+                            </div>
+                            <h3>No Media Loaded</h3>
+                            <p>Drag & drop an audio or video file here, load a remote URL, or record live using your microphone.</p>
+                            
+                            <div class="empty-actions">
+                                <button class="btn-primary" onclick="document.getElementById('audio-file').click();">
+                                    Import File
+                                </button>
+                                <button class="btn-primary" id="empty-rec-btn" style="background: linear-gradient(135deg, rgba(255,0,50,0.1) 0%, rgba(0,0,0,0.5) 100%); border: 1px solid var(--primary-red); color: var(--primary-red); box-shadow: none;">
+                                    Record Live
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
 
             </div>
@@ -371,6 +407,8 @@
                         <option value="wav">WAV</option>
                         <option value="mp3">MP3</option>
                         <option value="aac">AAC</option>
+                        <option value="webm">WebM Video</option>
+                        <option value="mp4">MP4 Video</option>
                     </select>
                     <button id="mobile-export-btn" class="btn-icon" title="Export" disabled>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
