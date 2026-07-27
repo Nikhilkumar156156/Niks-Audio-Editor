@@ -1106,11 +1106,11 @@ input:checked + .slider:before {
 
   .timeline-wrapper {
     flex: 1;
-    height: 100%;
-    width: calc(100% - 0.5rem) !important;
+    width: 80% !important;
+    max-width: 80% !important;
     margin: 0 auto !important;
-    min-height: 180px;
-    box-sizing: border-box;
+    height: 100%;
+    min-height: 200px; /* Full waveform expansion on mobile */
   }
 
   .panel-card {
@@ -1556,8 +1556,8 @@ input:checked + .slider:before {
   .workspace-content.video-mode .video-container {
     aspect-ratio: 16 / 9;
     height: auto;
-    min-height: 110px;
-    max-height: 135px;
+    min-height: 140px;
+    max-height: 180px;
   }
 }
 
