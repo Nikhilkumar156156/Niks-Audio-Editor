@@ -744,8 +744,8 @@ input:checked + .slider:before {
   display: none;
 }
 
-/* URL Loader Modal */
-#url-modal, #gap-modal {
+/* URL Loader, Gap, Export Modals */
+#url-modal, #gap-modal, #export-modal {
   display: none;
   position: fixed;
   top: 50%;
@@ -762,7 +762,7 @@ input:checked + .slider:before {
   box-sizing: border-box;
 }
 
-#url-modal.show, #gap-modal.show {
+#url-modal.show, #gap-modal.show, #export-modal.show {
   display: block;
 }
 
@@ -1176,6 +1176,21 @@ input:checked + .slider:before {
     align-items: center;
     gap: 0.25rem;
     justify-self: end !important;
+  }
+
+  #mobile-export-btn {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 34px !important;
+    height: 34px !important;
+    border-radius: 8px !important;
+    background: rgba(255, 0, 50, 0.15) !important;
+    border: 1px solid var(--primary-red) !important;
+    color: #fff !important;
+    cursor: pointer !important;
+    pointer-events: auto !important;
+    box-shadow: 0 0 10px rgba(255, 0, 50, 0.2) !important;
   }
 
   .mobile-export-container .export-select {

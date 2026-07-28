@@ -444,6 +444,8 @@ class AppController {
                 if (urlModal) urlModal.classList.remove('show');
                 const gapModal = document.getElementById('gap-modal');
                 if (gapModal) gapModal.classList.remove('show');
+                const exportModal = document.getElementById('export-modal');
+                if (exportModal) exportModal.classList.remove('show');
                 modalBackdrop.style.display = 'none';
                 document.body.style.overflow = '';
             });
@@ -483,9 +485,51 @@ class AppController {
             });
         }
 
-        // Mobile Export button binding
+        // Mobile Export button binding (opens Export Format pop-up modal)
         if (this.mobileExportBtn) {
-            this.mobileExportBtn.addEventListener('click', () => this.exportAudio());
+            const openExportModal = (e) => {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                console.log("Opening Export Modal on mobile");
+                const exportModal = document.getElementById('export-modal');
+                const modalBackdrop = document.getElementById('modal-backdrop');
+                if (exportModal) {
+                    exportModal.classList.add('show');
+                    if (modalBackdrop) modalBackdrop.style.display = 'block';
+                    document.body.style.overflow = 'hidden';
+                }
+            };
+
+            this.mobileExportBtn.addEventListener('click', openExportModal);
+            this.mobileExportBtn.addEventListener('touchend', openExportModal);
+        }
+
+        const closeExportModalBtn = document.getElementById('close-export-modal');
+        if (closeExportModalBtn) {
+            closeExportModalBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const exportModal = document.getElementById('export-modal');
+                if (exportModal) exportModal.classList.remove('show');
+                const modalBackdrop = document.getElementById('modal-backdrop');
+                if (modalBackdrop) modalBackdrop.style.display = 'none';
+                document.body.style.overflow = '';
+            });
+        }
+
+        const modalExportConfirmBtn = document.getElementById('modal-export-confirm-btn');
+        const modalExportFormatSelect = document.getElementById('modal-export-format');
+        if (modalExportConfirmBtn && modalExportFormatSelect) {
+            modalExportConfirmBtn.addEventListener('click', () => {
+                const format = modalExportFormatSelect.value;
+                const exportModal = document.getElementById('export-modal');
+                if (exportModal) exportModal.classList.remove('show');
+                const modalBackdrop = document.getElementById('modal-backdrop');
+                if (modalBackdrop) modalBackdrop.style.display = 'none';
+                document.body.style.overflow = '';
+                this.exportAudio(format);
+            });
         }
 
         this.compressorToggle.addEventListener('change', (e) => {
@@ -1409,15 +1453,15 @@ class AppController {
         this.redoBtn.disabled = (this.historyIndex >= this.history.length - 1);
     }
 
-    // Export output as a WAV, MP3, or AAC file download
-    exportAudio() {
-        if (!window.audioEngine.renderedBuffer) return;
+    // Export output as a WAV, MP3, AAC, WebM, or MP4 file download
+    exportAudio(formatOverride = null) {
+        if (!window.audioEngine.renderedBuffer) {
+            alert("Please import or record a media file first before exporting.");
+            return;
+        }
         
-        let format = 'wav';
-        const isMobile = window.innerWidth <= 1024;
-        if (isMobile && this.mobileExportFormatSelect) {
-            format = this.mobileExportFormatSelect.value;
-        } else if (this.exportFormatSelect) {
+        let format = formatOverride || 'wav';
+        if (!formatOverride && this.exportFormatSelect) {
             format = this.exportFormatSelect.value;
         }
         const formatText = format.toUpperCase();
