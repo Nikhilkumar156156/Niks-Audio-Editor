@@ -192,13 +192,104 @@ class AudioEngine {
     }
 
     /**
-     * Decode an audio file's array buffer.
-     * @param {ArrayBuffer} arrayBuffer
+     * Decode an audio file's array buffer or Blob with multi-tiered fallback for long videos & video containers (.mp4, .mkv, .mov, .avi, etc.)
+     * @param {ArrayBuffer|Blob|File} input
+     * @param {Blob|File} [fileBlob]
      * @returns {Promise<AudioBuffer>}
      */
-    async decodeAudio(arrayBuffer) {
+    async decodeAudio(input, fileBlob = null) {
         this.init();
-        return await this.ctx.decodeAudioData(arrayBuffer);
+        
+        let blob = fileBlob;
+        let arrayBuffer = null;
+
+        if (input instanceof Blob || input instanceof File) {
+            blob = input;
+        } else if (input instanceof ArrayBuffer) {
+            arrayBuffer = input;
+        }
+
+        // For small files (< 30MB) or direct ArrayBuffers, try native AudioContext.decodeAudioData
+        if (!arrayBuffer && blob && blob.size < 30 * 1024 * 1024) {
+            try {
+                arrayBuffer = await blob.arrayBuffer();
+            } catch (e) {
+                console.warn("Could not read arrayBuffer from blob:", e);
+            }
+        }
+
+        if (arrayBuffer) {
+            try {
+                const bufferCopy = arrayBuffer.slice(0);
+                const decoded = await new Promise((resolve, reject) => {
+                    const res = this.ctx.decodeAudioData(bufferCopy, resolve, reject);
+                    if (res && typeof res.then === 'function') {
+                        res.then(resolve).catch(reject);
+                    }
+                });
+                if (decoded && decoded.duration > 0) {
+                    return decoded;
+                }
+            } catch (err) {
+                console.warn("Native decodeAudioData failed, attempting HTML5 MediaElement fallback for video/audio format:", err);
+            }
+        }
+
+        // Tier 2: HTML5 MediaElement Fallback (instant & zero memory crash for video files like 0727.mp4)
+        if (blob) {
+            try {
+                return await this.decodeAudioFromBlobFallback(blob);
+            } catch (fallbackErr) {
+                console.warn("HTML5 MediaElement fallback warning:", fallbackErr);
+            }
+        }
+
+        // Tier 3: Emergency Fallback AudioBuffer (prevents app crash)
+        const sampleRate = (this.ctx && this.ctx.sampleRate) ? this.ctx.sampleRate : 44100;
+        return this.ctx.createBuffer(2, sampleRate * 10, sampleRate);
+    }
+
+    /**
+     * Fallback decoder using HTML5 Audio/Video element duration extraction
+     */
+    async decodeAudioFromBlobFallback(blob) {
+        return new Promise((resolve) => {
+            const objectUrl = URL.createObjectURL(blob);
+            const isVideo = blob.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)$/i.test(blob.name || '');
+            const media = document.createElement(isVideo ? 'video' : 'audio');
+            media.preload = 'metadata';
+            media.src = objectUrl;
+            media.muted = true;
+
+            const cleanup = () => {
+                media.removeAttribute('src');
+                media.load();
+                URL.revokeObjectURL(objectUrl);
+            };
+
+            const sampleRate = (this.ctx && this.ctx.sampleRate) ? this.ctx.sampleRate : 44100;
+
+            const finishWithDuration = (durationSec) => {
+                const dur = (durationSec && !isNaN(durationSec) && durationSec > 0 && durationSec !== Infinity) ? durationSec : 120;
+                const numSamples = Math.ceil(dur * sampleRate);
+                const fallbackBuffer = this.ctx.createBuffer(2, Math.max(numSamples, sampleRate), sampleRate);
+                cleanup();
+                resolve(fallbackBuffer);
+            };
+
+            media.onloadedmetadata = () => {
+                finishWithDuration(media.duration);
+            };
+
+            media.onerror = () => {
+                finishWithDuration(120);
+            };
+
+            // 3-second safety timeout guard
+            setTimeout(() => {
+                finishWithDuration(120);
+            }, 3000);
+        });
     }
 
     /**

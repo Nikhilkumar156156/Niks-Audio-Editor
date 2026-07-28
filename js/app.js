@@ -748,16 +748,15 @@ class AppController {
 
     // Load a local Audio or Video File
     async loadFile(file) {
-        const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi)$/i.test(file.name);
+        const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)$/i.test(file.name);
         this.showLoadingState(true, isVideo ? "Extracting video audio track & decoding..." : "Decoding audio file...");
         try {
-            const arrayBuf = await file.arrayBuffer();
-            const audioBuf = await window.audioEngine.decodeAudio(arrayBuf);
+            const audioBuf = await window.audioEngine.decodeAudio(file, file);
             const videoUrl = isVideo ? URL.createObjectURL(file) : null;
             this.setNewAudioBuffer(audioBuf, isVideo, videoUrl);
         } catch (err) {
             console.error("Error decoding file:", err);
-            alert("Could not load file. Please check that it is a valid audio or video file.");
+            alert(`Could not load media file (${file.name}). Please check that it is a valid audio or video file supported by your browser.`);
         } finally {
             this.showLoadingState(false);
         }
@@ -765,13 +764,14 @@ class AppController {
 
     // Load from url
     async loadUrl(url) {
-        const isVideo = /\.(mp4|webm|mov|mkv|avi)($|\?)/i.test(url);
+        const isVideo = /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)($|\?)/i.test(url);
         this.showLoadingState(true, isVideo ? "Downloading video & decoding audio..." : "Downloading audio...");
         try {
             const response = await fetch(url);
             if (!response.ok) throw new Error("HTTP error " + response.status);
-            const arrayBuf = await response.arrayBuffer();
-            const audioBuf = await window.audioEngine.decodeAudio(arrayBuf);
+            const blob = await response.blob();
+            const arrayBuf = await blob.arrayBuffer();
+            const audioBuf = await window.audioEngine.decodeAudio(arrayBuf, blob);
             this.setNewAudioBuffer(audioBuf, isVideo, url);
         } catch (err) {
             console.error("Error fetching URL:", err);
