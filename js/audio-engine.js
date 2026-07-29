@@ -276,7 +276,11 @@ class AudioEngine {
             const isVideo = blob.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)$/i.test(blob.name || '');
             const media = document.createElement(isVideo ? 'video' : 'audio');
             media.preload = 'auto';
+            media.style.display = 'none';
             media.muted = false; // Must be unmuted to feed MediaElementSourceNode
+            
+            // Attach media element to DOM tree (required by Web Audio spec for MediaElementAudioSourceNode)
+            document.body.appendChild(media);
 
             const sampleRate = (this.ctx && this.ctx.sampleRate) ? this.ctx.sampleRate : 44100;
             let sourceNode = null;
@@ -294,6 +298,7 @@ class AudioEngine {
                     if (gainNode) gainNode.disconnect();
                     media.removeAttribute('src');
                     media.load();
+                    if (media.parentNode) media.parentNode.removeChild(media);
                 } catch (e) {}
                 URL.revokeObjectURL(objectUrl);
             };
@@ -359,7 +364,7 @@ class AudioEngine {
             };
 
             media.onerror = () => finish();
-            setTimeout(() => finish(), 4000);
+            setTimeout(() => finish(), 3000);
 
             // Trigger media loading
             media.src = objectUrl;
@@ -376,6 +381,8 @@ class AudioEngine {
             const media = document.createElement(isVideo ? 'video' : 'audio');
             media.preload = 'metadata';
             media.muted = true;
+            media.style.display = 'none';
+            document.body.appendChild(media);
 
             let isResolved = false;
 
@@ -383,6 +390,7 @@ class AudioEngine {
                 try {
                     media.removeAttribute('src');
                     media.load();
+                    if (media.parentNode) media.parentNode.removeChild(media);
                 } catch (e) {}
                 URL.revokeObjectURL(objectUrl);
             };
@@ -408,10 +416,10 @@ class AudioEngine {
                 finishWithDuration(120);
             };
 
-            // 1.5 second safety guard
+            // 1 second safety guard
             setTimeout(() => {
                 finishWithDuration(120);
-            }, 1500);
+            }, 1000);
 
             // Now trigger media loading
             media.src = objectUrl;

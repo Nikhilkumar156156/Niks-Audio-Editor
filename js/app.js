@@ -176,11 +176,7 @@ class AppController {
     }
 
     setupBindings() {
-        // File Loader bindings with click reset and drag & drop support
-        this.fileInput.addEventListener('click', () => {
-            this.fileInput.value = '';
-        });
-
+        // File Loader bindings
         this.fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) this.loadFile(file);
