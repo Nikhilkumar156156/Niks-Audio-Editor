@@ -2235,7 +2235,7 @@ class AppController {
             try {
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
                 const isVideoFormat = format === 'mp4' || format === 'webm';
-                const filename = `niks-audio-editor-${timestamp}.${format}`;
+                const filename = `niks-editor-${timestamp}.${format}`;
                 
                 let blob;
                 if (format === 'mp3') {
