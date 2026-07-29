@@ -177,9 +177,21 @@ class AppController {
 
     setupBindings() {
         // File Loader bindings
-        this.fileInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) this.loadFile(file);
+        if (this.fileInput) {
+            this.fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) this.loadFile(file);
+            });
+        }
+
+        // Explicit click triggers for file labels on mobile / live HTTPS
+        const fileLabels = document.querySelectorAll('.file-label-btn');
+        fileLabels.forEach(label => {
+            label.addEventListener('click', () => {
+                if (this.fileInput) {
+                    this.fileInput.click();
+                }
+            });
         });
 
         // Global Drag & Drop media file onto window
