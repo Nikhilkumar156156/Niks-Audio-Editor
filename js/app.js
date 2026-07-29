@@ -1495,65 +1495,644 @@ class AppController {
         this.redoBtn.disabled = (this.historyIndex >= this.history.length - 1);
     }
 
-    // Export output as a WAV, MP3, AAC, WebM, or MP4 file download
-    exportAudio(formatOverride = null) {
-        if (!window.audioEngine.renderedBuffer) {
-            alert("Please import or record a media file first before exporting.");
-            return;
-        }
+    // Load a local Audio or Video File
+    async loadFile(file) {
+        if (!file) return;
         
-        let format = formatOverride || 'wav';
-        if (!formatOverride && this.exportFormatSelect) {
-            format = this.exportFormatSelect.value;
-        }
-        const formatText = format.toUpperCase();
-        this.showLoadingState(true, `Encoding ${formatText} file...`);
-        
-        setTimeout(async () => {
-            try {
-                let blob;
-                const filename = `edited_podcast_hq.${format}`;
-                
-                if (format === 'mp3') {
-                    blob = window.audioEngine.exportMp3(window.audioEngine.renderedBuffer);
-                } else if (format === 'aac') {
-                    blob = await window.audioEngine.exportAac(window.audioEngine.renderedBuffer);
-                } else if (format === 'webm' || format === 'mp4') {
-                    if (!this.isVideoLoaded || !this.videoPlayer) {
-                        alert("Exporting a video file requires an imported video. Please load a video file.");
-                        this.showLoadingState(false);
-                        return;
-                    }
-                    blob = await window.audioEngine.exportVideoTimeline(
-                        this.videoPlayer,
-                        this.clips,
-                        window.audioEngine.renderedBuffer,
-                        format === 'mp4' ? 'video/mp4' : 'video/webm'
-                    );
-                } else {
-                    blob = window.audioEngine.exportWav(window.audioEngine.renderedBuffer);
-                }
-                
-                const url = URL.createObjectURL(blob);
-                
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                
-                setTimeout(() => {
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                }, 100);
-            } catch (err) {
-                console.error("Export failed:", err);
-                alert(`Audio export failed: ${err.message || err}`);
-            } finally {
-                this.showLoadingState(false);
+        // Ensure AudioEngine is initialized and un-suspended inside user event gesture!
+        if (window.audioEngine) {
+            window.audioEngine.init();
+            if (window.audioEngine.ctx && window.audioEngine.ctx.state === 'suspended') {
+                await window.audioEngine.ctx.resume().catch(() => {});
             }
+        }
+
+        const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)$/i.test(file.name);
+        this.showLoadingState(true, isVideo ? "Extracting video audio track & decoding..." : "Decoding audio file...");
+        try {
+            const audioBuf = await window.audioEngine.decodeAudio(file, file);
+            const videoUrl = isVideo ? URL.createObjectURL(file) : null;
+            this.setNewAudioBuffer(audioBuf, isVideo, videoUrl);
+        } catch (err) {
+            console.error("Error decoding file:", err);
+            alert(`Could not load media file (${file.name}). Please check that it is a valid audio or video file supported by your browser.`);
+        } finally {
+            this.showLoadingState(false);
+        }
+    }
+
+    // Load from url
+    async loadUrl(url) {
+        if (window.audioEngine) {
+            window.audioEngine.init();
+            if (window.audioEngine.ctx && window.audioEngine.ctx.state === 'suspended') {
+                await window.audioEngine.ctx.resume().catch(() => {});
+            }
+        }
+
+        const isVideo = /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)($|\?)/i.test(url);
+        this.showLoadingState(true, isVideo ? "Downloading video & decoding audio..." : "Downloading audio...");
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error("HTTP error " + response.status);
+            const blob = await response.blob();
+            const arrayBuf = await blob.arrayBuffer();
+            const audioBuf = await window.audioEngine.decodeAudio(arrayBuf, blob);
+            this.setNewAudioBuffer(audioBuf, isVideo, url);
+        } catch (err) {
+            console.error("Error fetching URL:", err);
+            alert(`Could not load audio from URL. Cross-Origin (CORS) restrictions or invalid link: ${err.message}`);
+        } finally {
+            this.showLoadingState(false);
+        }
+    }
+
+    // Set a newly loaded or recorded buffer as the project source
+    setNewAudioBuffer(audioBuffer, isVideo = false, videoUrl = null) {
+        this.originalBuffer = audioBuffer;
+        
+        if (this.videoObjectUrl && this.videoObjectUrl.startsWith('blob:')) {
+            URL.revokeObjectURL(this.videoObjectUrl);
+        }
+        this.videoObjectUrl = videoUrl;
+
+        if (isVideo && videoUrl && this.videoPlayer) {
+            this.isVideoLoaded = true;
+            this.videoPlayer.src = videoUrl;
+            this.videoPlayer.muted = false; // Always unmute native video audio!
+            this.videoPlayer.volume = 1.0;
+            this.videoPlayer.load();
+            
+            if (this.modeToggleContainer) this.modeToggleContainer.style.display = 'flex';
+            this.setWorkspaceMode('video');
+        } else {
+            this.isVideoLoaded = false;
+            if (this.videoPlayer) {
+                this.videoPlayer.src = '';
+                this.videoPlayer.muted = false;
+            }
+            if (this.modeToggleContainer) this.modeToggleContainer.style.display = 'none';
+            this.setWorkspaceMode('audio');
+        }
+
+        // Hide empty state placeholder
+        const emptyState = document.getElementById('empty-state');
+        if (emptyState) {
+            emptyState.style.display = 'none';
+        }
+        
+        // Reset states
+        this.clips = [{
+            id: this.nextClipId++,
+            originalStart: 0,
+            originalEnd: audioBuffer.duration,
+            timelineStart: 0,
+            speed: 1.0,
+            type: 'normal',
+            boundsMin: 0,
+            boundsMax: audioBuffer.duration,
+            deleted: false
+        }];
+        
+        this.history = [];
+        this.historyIndex = -1;
+
+        // Initialize timeline and audio engine with new buffer
+        this.timeline.setBuffer(audioBuffer);
+        this.timeline.setClips(this.clips);
+        
+        this.saveHistory();
+        this.renderAndSyncAudio();
+
+        // Reset selections & clipboard
+        this.clipboard = null;
+        this.timeline.selectedClip = null;
+        this.updateCutCopyPasteUI();
+
+        // Enable action buttons
+        this.scanGapsBtn.disabled = false;
+        this.scanRepeatsBtn.disabled = false;
+        this.exportBtn.disabled = false;
+        if (this.mobileScanGapsBtn) this.mobileScanGapsBtn.disabled = false;
+        if (this.mobileScanRepeatsBtn) this.mobileScanRepeatsBtn.disabled = false;
+        if (this.mobileExportBtn) this.mobileExportBtn.disabled = false;
+    }
+
+    // Playback starting from an offset
+    playTimeline(timeOffset = null) {
+        if (!this.originalBuffer) return;
+        
+        const offset = timeOffset !== null ? timeOffset : this.timeline.playheadTime;
+        
+        this.playBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+            </svg><span class="btn-text"> Pause</span>
+        `;
+
+        if (this.isVideoLoaded && this.videoPlayer) {
+            this.videoPlayer.muted = false;
+            this.videoPlayer.volume = 1.0;
+            this.syncVideoToPlayhead(offset);
+        }
+
+        window.audioEngine.play(
+            offset,
+            (currentTime) => {
+                this.timeline.playheadTime = currentTime;
+                this.timeline.draw();
+                this.updateTimeDisplay(currentTime);
+            },
+            () => {
+                // Completed playback
+                if (this.isVideoLoaded && this.videoPlayer) {
+                    this.videoPlayer.pause();
+                }
+                this.playBtn.innerHTML = `
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg><span class="btn-text"> Play</span>
+                `;
+            }
+        );
+    }
+
+    stopTimeline() {
+        window.audioEngine.stop();
+        if (this.isVideoLoaded && this.videoPlayer) {
+            this.videoPlayer.pause();
+        }
+        this.playBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                <path d="M8 5v14l11-7z"/>
+            </svg><span class="btn-text"> Play</span>
+        `;
+        this.timeline.playheadTime = 0;
+        this.timeline.draw();
+        this.updateTimeDisplay(0);
+        if (this.isVideoLoaded && this.videoPlayer) {
+            this.syncVideoToPlayhead(0);
+        }
+    }
+
+    togglePlayPause() {
+        if (window.audioEngine.isPlaying) {
+            this.stopTimeline();
+        } else {
+            this.playTimeline();
+        }
+    }
+
+    // Render active clips and sync with AudioEngine
+    renderAndSyncAudio() {
+        if (!this.originalBuffer) return;
+        const renderedBuffer = window.audioEngine.renderTimeline(this.originalBuffer, this.clips);
+        this.timeline.setBuffer(renderedBuffer);
+        this.updateCutCopyPasteUI();
+    }
+
+    // Run Automatic Silence Gap scanner
+    runSilenceScanner() {
+        if (!this.originalBuffer) return;
+
+        this.showLoadingState(true, "Scanning silence gaps...");
+        
+        setTimeout(() => {
+            const thresholdDb = parseFloat(this.gapThresholdSlider.value);
+            const minDurationMs = parseFloat(this.gapMinDurationSlider.value);
+
+            const { gaps, speech } = window.AudioDetector.detectGaps(this.originalBuffer, thresholdDb, minDurationMs);
+
+            const newClips = [];
+            
+            // Build timeline clips: normal speech clips vs gap clips
+            speech.forEach(sp => {
+                newClips.push({
+                    id: this.nextClipId++,
+                    originalStart: sp.start,
+                    originalEnd: sp.end,
+                    timelineStart: sp.start,
+                    type: 'normal',
+                    boundsMin: sp.start,
+                    boundsMax: sp.end,
+                    deleted: false
+                });
+            });
+
+            gaps.forEach(gap => {
+                newClips.push({
+                    id: this.nextClipId++,
+                    originalStart: gap.start,
+                    originalEnd: gap.end,
+                    timelineStart: gap.start,
+                    type: 'gap',
+                    boundsMin: gap.start,
+                    boundsMax: gap.end,
+                    deleted: false
+                });
+            });
+
+            // Sort clips by timelineStart
+            newClips.sort((a, b) => a.timelineStart - b.timelineStart);
+
+            this.clips = newClips;
+            this.timeline.setClips(this.clips);
+            this.saveHistory();
+            this.renderAndSyncAudio();
+            this.showLoadingState(false);
         }, 50);
+    }
+    // Run DTW-based repeat phrases detection
+    runRepeatDetection() {
+        if (!this.originalBuffer) return;
+
+        this.showLoadingState(true, "Refining segments & analyzing repeats...");
+
+        setTimeout(() => {
+            const thresholdDb = parseFloat(this.gapThresholdSlider.value);
+            const subMinDurationMs = 150; // Sensitive pause threshold for subdivision
+
+            const newClips = [];
+            let clipsChanged = false;
+
+            this.clips.forEach(clip => {
+                if (clip.deleted || clip.type === 'gap') {
+                    newClips.push(clip);
+                    return;
+                }
+
+                // Subdivide active speech clips
+                const sampleRate = this.originalBuffer.sampleRate;
+                const startSample = Math.floor(clip.originalStart * sampleRate);
+                const endSample = Math.floor(clip.originalEnd * sampleRate);
+                const length = endSample - startSample;
+
+                if (length <= 0) {
+                    newClips.push(clip);
+                    return;
+                }
+
+                // Extract audio slice data
+                const channelData = this.originalBuffer.getChannelData(0).subarray(startSample, endSample);
+                
+                // Construct a mock AudioBuffer for detectGaps
+                const mockBuffer = {
+                    sampleRate: sampleRate,
+                    duration: length / sampleRate,
+                    getChannelData: () => channelData
+                };
+
+                const { gaps, speech } = window.AudioDetector.detectGaps(mockBuffer, thresholdDb, subMinDurationMs);
+
+                if (speech.length <= 1) {
+                    newClips.push(clip);
+                    return;
+                }
+
+                clipsChanged = true;
+                const speed = clip.speed || 1.0;
+
+                // Add subdivided speech and gap clips
+                const subSegments = [];
+                gaps.forEach(gap => {
+                    subSegments.push({
+                        type: 'gap',
+                        start: gap.start,
+                        end: gap.end
+                    });
+                });
+                speech.forEach(sp => {
+                    subSegments.push({
+                        type: 'speech',
+                        start: sp.start,
+                        end: sp.end
+                    });
+                });
+
+                // Sort chronologically
+                subSegments.sort((a, b) => a.start - b.start);
+
+                subSegments.forEach(sub => {
+                    const origStart = clip.originalStart + sub.start;
+                    const origEnd = clip.originalStart + sub.end;
+                    const timelineOffset = sub.start / speed;
+
+                    newClips.push({
+                        id: this.nextClipId++,
+                        originalStart: origStart,
+                        originalEnd: origEnd,
+                        timelineStart: clip.timelineStart + timelineOffset,
+                        speed: speed,
+                        type: sub.type === 'gap' ? 'gap' : 'normal',
+                        boundsMin: origStart,
+                        boundsMax: origEnd,
+                        deleted: false
+                    });
+                });
+            });
+
+            if (clipsChanged) {
+                this.clips = newClips;
+                this.clips.sort((a, b) => a.timelineStart - b.timelineStart);
+                this.timeline.setClips(this.clips);
+            }
+
+            // Now, run repeat detection on all active speech segments
+            const activeSpeechClips = this.clips.filter(c => !c.deleted && c.type !== 'gap');
+            if (activeSpeechClips.length <= 1) {
+                this.showLoadingState(false);
+                return;
+            }
+
+            const sensitivity = parseFloat(this.repeatThresholdSlider.value);
+            const matches = window.AudioDetector.findRepeatedPhrases(this.originalBuffer, activeSpeechClips, sensitivity);
+
+            if (matches.length > 0) {
+                // Group duplicates and assign repeat group IDs
+                let nextGroupId = 1;
+                matches.forEach(match => {
+                    const groupId = nextGroupId++;
+                    
+                    // Mark duplicate takes as 'repeat' (yellow)
+                    match.duplicateIds.forEach(id => {
+                        const c = this.clips.find(clip => clip.id === id);
+                        if (c) {
+                            c.type = 'repeat';
+                            c.groupId = groupId;
+                        }
+                    });
+
+                    // Mark best take as 'final' (green keep take)
+                    const best = this.clips.find(clip => clip.id === match.bestClipId);
+                    if (best) {
+                        best.type = 'final';
+                        best.groupId = groupId;
+                    }
+                });
+            }
+
+            this.timeline.setClips(this.clips);
+            this.saveHistory();
+            this.renderAndSyncAudio();
+            this.showLoadingState(false);
+        }, 50);
+    }
+
+    // Cut / Delete selected clip (Ripple shift)
+    cutSelectedClip() {
+        if (!this.timeline.selectedClip) return;
+
+        const clipToCut = this.timeline.selectedClip;
+        const duration = (clipToCut.originalEnd - clipToCut.originalStart) / (clipToCut.speed || 1.0);
+        const startTime = clipToCut.timelineStart;
+
+        // Soft delete clip
+        clipToCut.deleted = true;
+        this.clipboard = { ...clipToCut };
+
+        // Ripple shift all active segments after this clip to the left
+        this.clips.forEach(c => {
+            if (!c.deleted && c.timelineStart > startTime) {
+                c.timelineStart = Math.max(0, c.timelineStart - duration);
+            }
+        });
+
+        this.timeline.selectedClip = null;
+        this.timeline.setClips(this.clips);
+        this.saveHistory();
+        this.renderAndSyncAudio();
+        this.updateCutCopyPasteUI();
+    }
+
+    // Copy selected clip
+    copySelectedClip() {
+        if (!this.timeline.selectedClip) return;
+        this.clipboard = { ...this.timeline.selectedClip };
+        this.updateCutCopyPasteUI();
+    }
+
+    // Paste clip at current playhead position with ripple shift
+    pasteClipAtPlayhead() {
+        if (!this.clipboard) return;
+
+        const playhead = this.timeline.playheadTime;
+        const duration = (this.clipboard.originalEnd - this.clipboard.originalStart) / (this.clipboard.speed || 1.0);
+
+        // 1. Check if playhead cuts directly inside an existing clip -> Split it first
+        const activeClips = this.clips.filter(c => !c.deleted);
+        const intersectingClip = activeClips.find(c => {
+            const clipDur = (c.originalEnd - c.originalStart) / (c.speed || 1.0);
+            return playhead > c.timelineStart && playhead < c.timelineStart + clipDur;
+        });
+
+        if (intersectingClip) {
+            const speed = intersectingClip.speed || 1.0;
+            const timeOffset = playhead - intersectingClip.timelineStart;
+            const splitOffset = intersectingClip.originalStart + timeOffset * speed;
+
+            // Left part
+            const leftClip = {
+                ...intersectingClip,
+                id: this.nextClipId++,
+                originalEnd: splitOffset,
+                boundsMax: splitOffset
+            };
+
+            // Right part
+            const rightClip = {
+                ...intersectingClip,
+                id: this.nextClipId++,
+                originalStart: splitOffset,
+                timelineStart: playhead,
+                boundsMin: splitOffset
+            };
+
+            intersectingClip.deleted = true;
+            this.clips.push(leftClip, rightClip);
+        }
+
+        // 2. Ripple shift all active segments starting at or after playhead to the right
+        this.clips.forEach(c => {
+            if (!c.deleted && c.timelineStart >= playhead) {
+                c.timelineStart += duration;
+            }
+        });
+
+        // 3. Insert pasted clip at playhead position
+        const pastedClip = {
+            ...this.clipboard,
+            id: this.nextClipId++,
+            timelineStart: playhead,
+            boundsMin: this.clipboard.originalStart,
+            boundsMax: this.clipboard.originalEnd,
+            deleted: false
+        };
+        this.clips.push(pastedClip);
+
+        // 4. Sort clips and clean repeat groups
+        this.clips.sort((a, b) => a.timelineStart - b.timelineStart);
+        this.cleanRepeatGroups();
+
+        this.timeline.setClips(this.clips);
+        this.saveHistory();
+        this.renderAndSyncAudio();
+        this.updateCutCopyPasteUI();
+    }
+
+    /**
+     * Cut/Split the segment under the playhead into two distinct segments.
+     */
+    splitAtPlayhead() {
+        const playhead = this.timeline.playheadTime;
+        const activeClips = this.clips.filter(c => !c.deleted);
+        const intersectingClip = activeClips.find(c => {
+            const duration = (c.originalEnd - c.originalStart) / (c.speed || 1.0);
+            return playhead > c.timelineStart && playhead < c.timelineStart + duration;
+        });
+
+        if (!intersectingClip) return;
+
+        const speed = intersectingClip.speed || 1.0;
+        const timeOffset = playhead - intersectingClip.timelineStart;
+        const splitOffset = intersectingClip.originalStart + timeOffset * speed;
+
+        // Left part
+        const leftClip = {
+            ...intersectingClip,
+            id: this.nextClipId++,
+            originalEnd: splitOffset,
+            boundsMax: splitOffset
+        };
+
+        // Right part
+        const rightClip = {
+            ...intersectingClip,
+            id: this.nextClipId++,
+            originalStart: splitOffset,
+            timelineStart: playhead,
+            boundsMin: splitOffset
+        };
+
+        intersectingClip.deleted = true;
+        this.clips.push(leftClip, rightClip);
+        this.clips.sort((a, b) => a.timelineStart - b.timelineStart);
+
+        this.timeline.setClips(this.clips);
+        this.saveHistory();
+        this.renderAndSyncAudio();
+        this.updateCutCopyPasteUI();
+    }
+
+    /**
+     * Insert Silence Gap modal trigger or quick insertion at playhead
+     * Opens modal dialog asking for duration in milliseconds.
+     */
+    openInsertGapModal() {
+        if (!this.originalBuffer) return;
+
+        const modal = document.getElementById('gap-modal');
+        const backdrop = document.getElementById('modal-backdrop');
+        const confirmBtn = document.getElementById('modal-gap-confirm-btn');
+        const cancelBtn = document.getElementById('close-gap-modal');
+        const input = document.getElementById('gap-duration-input');
+
+        if (modal && backdrop && confirmBtn && cancelBtn && input) {
+            modal.classList.add('show');
+            backdrop.style.display = 'block';
+            document.body.style.overflow = 'hidden';
+            input.value = "500"; // default 500ms
+            input.focus();
+
+            const closeModal = () => {
+                modal.classList.remove('show');
+                backdrop.style.display = 'none';
+                document.body.style.overflow = '';
+            };
+
+            const handleConfirm = () => {
+                const durMs = parseFloat(input.value);
+                if (!isNaN(durMs) && durMs > 0) {
+                    this.insertSilenceGap(durMs / 1000);
+                }
+                closeModal();
+            };
+
+            confirmBtn.onclick = handleConfirm;
+            cancelBtn.onclick = closeModal;
+        } else {
+            // Quick fallback 500ms gap
+            this.insertSilenceGap(0.5);
+        }
+    }
+
+    /**
+     * Insert a Silence Gap at current playhead position with ripple shift right
+     * @param {number} durationSec - Gap duration in seconds
+     */
+    insertSilenceGap(durationSec = 0.5) {
+        if (!this.originalBuffer || durationSec <= 0) return;
+
+        const playhead = this.timeline.playheadTime;
+        const duration = durationSec;
+
+        // 1. Check if playhead intersects an active clip -> Split it first
+        const activeClips = this.clips.filter(c => !c.deleted);
+        const intersectingClip = activeClips.find(c => {
+            const clipDur = (c.originalEnd - c.originalStart) / (c.speed || 1.0);
+            return playhead > c.timelineStart && playhead < c.timelineStart + clipDur;
+        });
+
+        if (intersectingClip) {
+            const speed = intersectingClip.speed || 1.0;
+            const timeOffset = playhead - intersectingClip.timelineStart;
+            const splitOffset = intersectingClip.originalStart + timeOffset * speed;
+
+            // Left part
+            const leftClip = {
+                ...intersectingClip,
+                id: this.nextClipId++,
+                originalEnd: splitOffset,
+                boundsMax: splitOffset
+            };
+
+            // Right part
+            const rightClip = {
+                ...intersectingClip,
+                id: this.nextClipId++,
+                originalStart: splitOffset,
+                timelineStart: playhead,
+                boundsMin: splitOffset
+            };
+
+            intersectingClip.deleted = true;
+            this.clips.push(leftClip, rightClip);
+        }
+
+        // 2. Ripple shift all active segments starting at or after playhead to the right
+        this.clips.forEach(c => {
+            if (!c.deleted && c.timelineStart >= playhead) {
+                c.timelineStart += duration;
+            }
+        });
+
+        // 3. Add the gap as a clip
+        this.clips.push({
+            id: this.nextClipId++,
+            originalStart: 0,
+            originalEnd: duration,
+            timelineStart: playhead,
+            type: 'gap',
+            deleted: false
+        });
+
+        // 4. Sort clips and clean repeat groups
+        this.clips.sort((a, b) => a.timelineStart - b.timelineStart);
+        this.cleanRepeatGroups();
+
+        this.timeline.setClips(this.clips);
+        this.saveHistory();
+        this.renderAndSyncAudio();
+        this.updateCutCopyPasteUI();
     }
 
     syncVideoToPlayhead(time) {
@@ -1643,10 +2222,69 @@ class AppController {
             if (spinnerText) spinnerText.innerText = text;
         }
     }
+
+    // Export edited audio/video
+    exportAudio(formatOverride = null) {
+        if (!window.audioEngine.renderedBuffer) return;
+        
+        const formatSelect = document.getElementById('export-format');
+        const format = formatOverride || (formatSelect ? formatSelect.value : 'wav');
+        this.showLoadingState(true, `Exporting project as ${format.toUpperCase()}...`);
+
+        setTimeout(async () => {
+            try {
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                const isVideoFormat = format === 'mp4' || format === 'webm';
+                const filename = `niks-audio-editor-${timestamp}.${format}`;
+                
+                let blob;
+                if (format === 'mp3') {
+                    blob = window.audioEngine.exportMp3(window.audioEngine.renderedBuffer);
+                } else if (format === 'aac') {
+                    blob = await window.audioEngine.exportAac(window.audioEngine.renderedBuffer);
+                } else if (isVideoFormat) {
+                    blob = await window.audioEngine.exportVideo(
+                        this.videoPlayer,
+                        this.clips,
+                        window.audioEngine.renderedBuffer,
+                        format === 'mp4' ? 'video/mp4' : 'video/webm'
+                    );
+                } else {
+                    blob = window.audioEngine.exportWav(window.audioEngine.renderedBuffer);
+                }
+                
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 100);
+            } catch (err) {
+                console.error("Export failed:", err);
+                alert(`Export failed: ${err.message || err}`);
+            } finally {
+                this.showLoadingState(false);
+            }
+        }, 50);
+    }
 }
 
-// Instantiate and launch App
-window.onload = () => {
-    window.app = new AppController();
-    window.app.init();
+// Instantiate and launch App automatically
+const initApp = () => {
+    if (!window.app) {
+        window.app = new AppController();
+        window.app.init();
+    }
 };
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
+}
