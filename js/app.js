@@ -184,16 +184,6 @@ class AppController {
             });
         }
 
-        // Explicit click triggers for file labels on mobile / live HTTPS
-        const fileLabels = document.querySelectorAll('.file-label-btn');
-        fileLabels.forEach(label => {
-            label.addEventListener('click', () => {
-                if (this.fileInput) {
-                    this.fileInput.click();
-                }
-            });
-        });
-
         // Global Drag & Drop media file onto window
         window.addEventListener('dragover', (e) => {
             e.preventDefault();
