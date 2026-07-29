@@ -177,22 +177,21 @@ class AppController {
 
     setupBindings() {
         // File Loader bindings
-        if (this.fileInput) {
-            this.fileInput.addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (file) this.loadFile(file);
-            });
-        }
+        this.fileInput.addEventListener('change', (e) => {
+            const file = e.target.files && e.target.files[0];
+            e.target.value = ''; // Reset input value so selecting the same file again triggers change event
+            if (file) this.loadFile(file);
+        });
 
         // Global Drag & Drop media file onto window
-        window.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            window.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
         });
 
         window.addEventListener('drop', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
             if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
                 this.loadFile(e.dataTransfer.files[0]);
             }

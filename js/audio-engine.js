@@ -197,22 +197,36 @@ class AudioEngine {
      * @param {Blob|File} [fileBlob]
      * @returns {Promise<AudioBuffer>}
      */
+    /**
+     * Promisified cross-browser decodeAudioData wrapper for WebKit, Safari, Chrome, Edge, and Firefox
+     */
+    decodeAudioDataPromisified(ctx, arrayBuffer) {
+        return new Promise((resolve, reject) => {
+            try {
+                const bufferCopy = arrayBuffer.slice(0);
+                const promise = ctx.decodeAudioData(
+                    bufferCopy,
+                    (decoded) => resolve(decoded),
+                    (err) => reject(err)
+                );
+                if (promise && typeof promise.then === 'function') {
+                    promise.then(resolve).catch(reject);
+                }
+            } catch (e) {
+                reject(e);
+            }
+        });
+    }
+
     async decodeAudio(input, fileBlob = null) {
         this.init();
         if (this.ctx && this.ctx.state === 'suspended') {
             await this.ctx.resume().catch(() => {});
         }
         
-        let blob = fileBlob;
-        let arrayBuffer = null;
+        let blob = (input instanceof Blob || input instanceof File) ? input : fileBlob;
+        let arrayBuffer = (input instanceof ArrayBuffer) ? input : null;
 
-        if (input instanceof ArrayBuffer) {
-            arrayBuffer = input;
-        } else if (input instanceof Blob || input instanceof File) {
-            blob = input;
-        }
-
-        // Get ArrayBuffer from blob if not already present
         if (!arrayBuffer && blob) {
             try {
                 arrayBuffer = await blob.arrayBuffer();
@@ -221,58 +235,23 @@ class AudioEngine {
             }
         }
 
-        // Helper function for 100% cross-browser decodeAudioData (supports both Promise & callback signatures)
-        const safeDecode = (context, ab) => {
-            return new Promise((resolve, reject) => {
-                let isResolved = false;
-                const p = context.decodeAudioData(
-                    ab,
-                    (decoded) => {
-                        if (!isResolved) {
-                            isResolved = true;
-                            resolve(decoded);
-                        }
-                    },
-                    (err) => {
-                        if (!isResolved) {
-                            isResolved = true;
-                            reject(err);
-                        }
-                    }
-                );
-                if (p && typeof p.then === 'function') {
-                    p.then((decoded) => {
-                        if (!isResolved) {
-                            isResolved = true;
-                            resolve(decoded);
-                        }
-                    }).catch((err) => {
-                        if (!isResolved) {
-                            isResolved = true;
-                            reject(err);
-                        }
-                    });
-                }
-            });
-        };
-
-        // Tier 1: Decode PCM audio data natively using Web Audio API
+        // Tier 1A: Decode PCM audio data natively using Web Audio API (Promisified for Safari & Chrome)
         if (arrayBuffer && arrayBuffer.byteLength > 0) {
             try {
-                const bufferCopy = arrayBuffer.slice(0);
-                const decoded = await safeDecode(this.ctx, bufferCopy);
+                const decoded = await this.decodeAudioDataPromisified(this.ctx, arrayBuffer);
                 if (decoded && decoded.duration > 0) {
                     return decoded;
                 }
             } catch (err) {
-                console.warn("Native decodeAudioData failed, attempting OfflineAudioContext decode:", err);
+                console.warn("Native decodeAudioData failed for video format, attempting OfflineAudioContext decode:", err);
             }
 
+            // Tier 1B: OfflineAudioContext decode
             try {
                 const offlineCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(
                     2, 44100 * 10, 44100
                 );
-                const decoded = await safeDecode(offlineCtx, arrayBuffer.slice(0));
+                const decoded = await this.decodeAudioDataPromisified(offlineCtx, arrayBuffer);
                 if (decoded && decoded.duration > 0) {
                     return decoded;
                 }
