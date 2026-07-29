@@ -192,7 +192,7 @@ class AudioEngine {
     }
 
     /**
-     * Decode an audio file's array buffer or Blob with multi-tiered fallback for long videos & video containers (.mp4, .mkv, .mov, .avi, etc.)
+     * Decode an audio file's array buffer or Blob with multi-tiered fallback.
      * @param {ArrayBuffer|Blob|File} input
      * @param {Blob|File} [fileBlob]
      * @returns {Promise<AudioBuffer>}
@@ -203,14 +203,14 @@ class AudioEngine {
         let blob = fileBlob;
         let arrayBuffer = null;
 
-        if (input instanceof Blob || input instanceof File) {
-            blob = input;
-        } else if (input instanceof ArrayBuffer) {
+        if (input instanceof ArrayBuffer) {
             arrayBuffer = input;
+        } else if (input instanceof Blob || input instanceof File) {
+            blob = input;
         }
 
-        // For small files (< 30MB) or direct ArrayBuffers, try native AudioContext.decodeAudioData
-        if (!arrayBuffer && blob && blob.size < 30 * 1024 * 1024) {
+        // Get ArrayBuffer from blob if not already present
+        if (!arrayBuffer && blob) {
             try {
                 arrayBuffer = await blob.arrayBuffer();
             } catch (e) {
@@ -218,32 +218,20 @@ class AudioEngine {
             }
         }
 
-        if (arrayBuffer) {
+        // Tier 1: Decode PCM audio data natively using Web Audio API
+        if (arrayBuffer && arrayBuffer.byteLength > 0) {
             try {
                 const bufferCopy = arrayBuffer.slice(0);
-                const decoded = await new Promise((resolve, reject) => {
-                    const res = this.ctx.decodeAudioData(bufferCopy, resolve, reject);
-                    if (res && typeof res.then === 'function') {
-                        res.then(resolve).catch(reject);
-                    }
-                });
+                const decoded = await this.ctx.decodeAudioData(bufferCopy);
                 if (decoded && decoded.duration > 0) {
                     return decoded;
                 }
             } catch (err) {
-<<<<<<< HEAD
                 console.warn("Native decodeAudioData failed, attempting HTML5 MediaElement fallback:", err);
             }
         }
 
         // Tier 2: HTML5 MediaElement Fallback (for non-standard video containers)
-=======
-                console.warn("Native decodeAudioData failed, attempting HTML5 MediaElement fallback for video/audio format:", err);
-            }
-        }
-
-        // Tier 2: HTML5 MediaElement Fallback (instant & zero memory crash for video files like 0727.mp4)
->>>>>>> parent of f95d58c (Improve video sync, audio decode, waveform)
         if (blob) {
             try {
                 return await this.decodeAudioFromBlobFallback(blob);
@@ -252,7 +240,7 @@ class AudioEngine {
             }
         }
 
-        // Tier 3: Emergency Fallback AudioBuffer (prevents app crash)
+        // Tier 3: Emergency Fallback AudioBuffer
         const sampleRate = (this.ctx && this.ctx.sampleRate) ? this.ctx.sampleRate : 44100;
         return this.ctx.createBuffer(2, sampleRate * 10, sampleRate);
     }
@@ -286,7 +274,6 @@ class AudioEngine {
                 resolve(fallbackBuffer);
             };
 
-<<<<<<< HEAD
             // First attempt arrayBuffer fetch and decode
             try {
                 const res = await fetch(objectUrl);
@@ -300,8 +287,6 @@ class AudioEngine {
                 console.warn("Fallback fetch/decode failed:", e);
             }
 
-=======
->>>>>>> parent of f95d58c (Improve video sync, audio decode, waveform)
             media.onloadedmetadata = () => {
                 finishWithDuration(media.duration);
             };

@@ -306,7 +306,6 @@ class AudioTimeline {
                     const peakIndex = Math.floor(sampleIndex / peakStep);
 
                     if (peakIndex >= 0 && peakIndex < this.peaks.max.length) {
-<<<<<<< HEAD
                         let maxVal = this.peaks.max[peakIndex];
                         let minVal = this.peaks.min[peakIndex];
 
@@ -316,10 +315,6 @@ class AudioTimeline {
                             maxVal = Math.max(0.12, Math.abs(synth));
                             minVal = -maxVal;
                         }
-=======
-                        const maxVal = this.peaks.max[peakIndex];
-                        const minVal = this.peaks.min[peakIndex];
->>>>>>> parent of f95d58c (Improve video sync, audio decode, waveform)
 
                         // Normalize height
                         const centerY = clipY + this.clipHeight / 2;
