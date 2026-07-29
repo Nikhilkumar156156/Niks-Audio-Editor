@@ -197,36 +197,22 @@ class AudioEngine {
      * @param {Blob|File} [fileBlob]
      * @returns {Promise<AudioBuffer>}
      */
-    /**
-     * Promisified cross-browser decodeAudioData wrapper for WebKit, Safari, Chrome, Edge, and Firefox
-     */
-    decodeAudioDataPromisified(ctx, arrayBuffer) {
-        return new Promise((resolve, reject) => {
-            try {
-                const bufferCopy = arrayBuffer.slice(0);
-                const promise = ctx.decodeAudioData(
-                    bufferCopy,
-                    (decoded) => resolve(decoded),
-                    (err) => reject(err)
-                );
-                if (promise && typeof promise.then === 'function') {
-                    promise.then(resolve).catch(reject);
-                }
-            } catch (e) {
-                reject(e);
-            }
-        });
-    }
-
     async decodeAudio(input, fileBlob = null) {
         this.init();
         if (this.ctx && this.ctx.state === 'suspended') {
             await this.ctx.resume().catch(() => {});
         }
         
-        let blob = (input instanceof Blob || input instanceof File) ? input : fileBlob;
-        let arrayBuffer = (input instanceof ArrayBuffer) ? input : null;
+        let blob = fileBlob;
+        let arrayBuffer = null;
 
+        if (input instanceof ArrayBuffer) {
+            arrayBuffer = input;
+        } else if (input instanceof Blob || input instanceof File) {
+            blob = input;
+        }
+
+        // Get ArrayBuffer from blob if not already present
         if (!arrayBuffer && blob) {
             try {
                 arrayBuffer = await blob.arrayBuffer();
@@ -235,28 +221,17 @@ class AudioEngine {
             }
         }
 
-        // Tier 1A: Decode PCM audio data natively using Web Audio API (Promisified for Safari & Chrome)
+        // Tier 1: Decode PCM audio data natively using Web Audio API
         if (arrayBuffer && arrayBuffer.byteLength > 0) {
             try {
-                const decoded = await this.decodeAudioDataPromisified(this.ctx, arrayBuffer);
+                const bufferCopy = arrayBuffer.slice(0);
+                const decoded = await this.ctx.decodeAudioData(bufferCopy);
                 if (decoded && decoded.duration > 0) {
+                    console.log("Tier 1 native decodeAudioData success:", decoded.duration, "sec");
                     return decoded;
                 }
             } catch (err) {
-                console.warn("Native decodeAudioData failed for video format, attempting OfflineAudioContext decode:", err);
-            }
-
-            // Tier 1B: OfflineAudioContext decode
-            try {
-                const offlineCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(
-                    2, 44100 * 10, 44100
-                );
-                const decoded = await this.decodeAudioDataPromisified(offlineCtx, arrayBuffer);
-                if (decoded && decoded.duration > 0) {
-                    return decoded;
-                }
-            } catch (err2) {
-                console.warn("OfflineAudioContext decode failed:", err2);
+                console.warn("Native decodeAudioData failed for video format, attempting Real PCM MediaElement capture:", err);
             }
         }
 
@@ -290,11 +265,7 @@ class AudioEngine {
             const isVideo = blob.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)$/i.test(blob.name || '');
             const media = document.createElement(isVideo ? 'video' : 'audio');
             media.preload = 'auto';
-            media.style.display = 'none';
             media.muted = false; // Must be unmuted to feed MediaElementSourceNode
-            
-            // Attach media element to DOM tree (required by Web Audio spec for MediaElementAudioSourceNode)
-            document.body.appendChild(media);
 
             const sampleRate = (this.ctx && this.ctx.sampleRate) ? this.ctx.sampleRate : 44100;
             let sourceNode = null;
@@ -312,7 +283,6 @@ class AudioEngine {
                     if (gainNode) gainNode.disconnect();
                     media.removeAttribute('src');
                     media.load();
-                    if (media.parentNode) media.parentNode.removeChild(media);
                 } catch (e) {}
                 URL.revokeObjectURL(objectUrl);
             };
@@ -378,7 +348,7 @@ class AudioEngine {
             };
 
             media.onerror = () => finish();
-            setTimeout(() => finish(), 3000);
+            setTimeout(() => finish(), 4000);
 
             // Trigger media loading
             media.src = objectUrl;
@@ -395,8 +365,6 @@ class AudioEngine {
             const media = document.createElement(isVideo ? 'video' : 'audio');
             media.preload = 'metadata';
             media.muted = true;
-            media.style.display = 'none';
-            document.body.appendChild(media);
 
             let isResolved = false;
 
@@ -404,7 +372,6 @@ class AudioEngine {
                 try {
                     media.removeAttribute('src');
                     media.load();
-                    if (media.parentNode) media.parentNode.removeChild(media);
                 } catch (e) {}
                 URL.revokeObjectURL(objectUrl);
             };
@@ -430,10 +397,10 @@ class AudioEngine {
                 finishWithDuration(120);
             };
 
-            // 1 second safety guard
+            // 1.5 second safety guard
             setTimeout(() => {
                 finishWithDuration(120);
-            }, 1000);
+            }, 1500);
 
             // Now trigger media loading
             media.src = objectUrl;
