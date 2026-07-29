@@ -313,16 +313,16 @@
                 <div id="video-preview-card" class="video-preview-card" style="display: none;">
                     <div class="video-preview-header">
                         <div class="video-title-wrap">
-                            <span class="video-indicator-dot"></span>
                             <span class="video-title-text">Video Sync Preview</span>
                         </div>
-                        <button id="toggle-video-size-btn" class="btn-icon" title="Toggle Video Scale" style="width: 26px; height: 26px; padding: 0;">
+                    </div>
+                    <div class="video-container">
+                        <span class="video-indicator-dot video-overlay-dot"></span>
+                        <button id="toggle-video-size-btn" class="btn-icon video-overlay-expand" title="Toggle Video Scale">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
                                 <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
                             </svg>
                         </button>
-                    </div>
-                    <div class="video-container">
                         <video id="video-preview-player" playsinline muted preload="auto"></video>
                         <div id="video-gap-overlay" class="video-gap-overlay" style="display: none;">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
