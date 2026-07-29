@@ -192,28 +192,25 @@ class AudioEngine {
     }
 
     /**
-     * Decode an audio file's array buffer or Blob with multi-tiered fallback.
+     * Decode an audio file's array buffer or Blob with multi-tiered fallback for long videos & video containers (.mp4, .mkv, .mov, .avi, etc.)
      * @param {ArrayBuffer|Blob|File} input
      * @param {Blob|File} [fileBlob]
      * @returns {Promise<AudioBuffer>}
      */
     async decodeAudio(input, fileBlob = null) {
         this.init();
-        if (this.ctx && this.ctx.state === 'suspended') {
-            await this.ctx.resume().catch(() => {});
-        }
         
         let blob = fileBlob;
         let arrayBuffer = null;
 
-        if (input instanceof ArrayBuffer) {
-            arrayBuffer = input;
-        } else if (input instanceof Blob || input instanceof File) {
+        if (input instanceof Blob || input instanceof File) {
             blob = input;
+        } else if (input instanceof ArrayBuffer) {
+            arrayBuffer = input;
         }
 
-        // Get ArrayBuffer from blob if not already present
-        if (!arrayBuffer && blob) {
+        // For small files (< 30MB) or direct ArrayBuffers, try native AudioContext.decodeAudioData
+        if (!arrayBuffer && blob && blob.size < 30 * 1024 * 1024) {
             try {
                 arrayBuffer = await blob.arrayBuffer();
             } catch (e) {
@@ -221,149 +218,35 @@ class AudioEngine {
             }
         }
 
-        // Tier 1: Decode PCM audio data natively using Web Audio API
-        if (arrayBuffer && arrayBuffer.byteLength > 0) {
+        if (arrayBuffer) {
             try {
                 const bufferCopy = arrayBuffer.slice(0);
-                const decoded = await this.ctx.decodeAudioData(bufferCopy);
+                const decoded = await new Promise((resolve, reject) => {
+                    const res = this.ctx.decodeAudioData(bufferCopy, resolve, reject);
+                    if (res && typeof res.then === 'function') {
+                        res.then(resolve).catch(reject);
+                    }
+                });
                 if (decoded && decoded.duration > 0) {
                     return decoded;
                 }
             } catch (err) {
-                console.warn("Native decodeAudioData failed for video format, attempting OfflineAudioContext decode:", err);
-            }
-
-            try {
-                const offlineCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(
-                    2, 44100 * 10, 44100
-                );
-                const decoded = await offlineCtx.decodeAudioData(arrayBuffer.slice(0));
-                if (decoded && decoded.duration > 0) {
-                    return decoded;
-                }
-            } catch (err2) {
-                console.warn("OfflineAudioContext decode failed:", err2);
+                console.warn("Native decodeAudioData failed, attempting HTML5 MediaElement fallback for video/audio format:", err);
             }
         }
 
-        // Tier 2: Real PCM Audio Extraction from Video MediaElement
+        // Tier 2: HTML5 MediaElement Fallback (instant & zero memory crash for video files like 0727.mp4)
         if (blob) {
             try {
-                const pcmBuffer = await this.captureRealPcmFromMedia(blob);
-                if (pcmBuffer && pcmBuffer.duration > 0) {
-                    console.log("Tier 2 Real PCM MediaElement capture success:", pcmBuffer.duration, "sec");
-                    return pcmBuffer;
-                }
-            } catch (captureErr) {
-                console.warn("Real PCM capture fallback error:", captureErr);
+                return await this.decodeAudioFromBlobFallback(blob);
+            } catch (fallbackErr) {
+                console.warn("HTML5 MediaElement fallback warning:", fallbackErr);
             }
-            return await this.decodeAudioFromBlobFallback(blob);
         }
 
-        // Tier 3: Emergency Fallback AudioBuffer
+        // Tier 3: Emergency Fallback AudioBuffer (prevents app crash)
         const sampleRate = (this.ctx && this.ctx.sampleRate) ? this.ctx.sampleRate : 44100;
         return this.ctx.createBuffer(2, sampleRate * 10, sampleRate);
-    }
-
-    /**
-     * Fast-capture real PCM AudioBuffer from any video file using MediaElementAudioSourceNode
-     * @param {Blob|File} blob
-     * @returns {Promise<AudioBuffer>}
-     */
-    async captureRealPcmFromMedia(blob) {
-        return new Promise((resolve) => {
-            const objectUrl = URL.createObjectURL(blob);
-            const isVideo = blob.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)$/i.test(blob.name || '');
-            const media = document.createElement(isVideo ? 'video' : 'audio');
-            media.preload = 'auto';
-            media.muted = false; // Must be unmuted to feed MediaElementSourceNode
-
-            const sampleRate = (this.ctx && this.ctx.sampleRate) ? this.ctx.sampleRate : 44100;
-            let sourceNode = null;
-            let scriptNode = null;
-            let gainNode = null;
-            let outputBuffer = null;
-            let writeOffset = 0;
-            let isDone = false;
-
-            const cleanup = () => {
-                try {
-                    media.pause();
-                    if (sourceNode) sourceNode.disconnect();
-                    if (scriptNode) scriptNode.disconnect();
-                    if (gainNode) gainNode.disconnect();
-                    media.removeAttribute('src');
-                    media.load();
-                } catch (e) {}
-                URL.revokeObjectURL(objectUrl);
-            };
-
-            const finish = () => {
-                if (isDone) return;
-                isDone = true;
-                cleanup();
-                resolve(outputBuffer || this.ctx.createBuffer(2, sampleRate * 10, sampleRate));
-            };
-
-            media.onloadedmetadata = () => {
-                const duration = media.duration;
-                if (!duration || isNaN(duration) || duration === Infinity) {
-                    finish();
-                    return;
-                }
-
-                const totalSamples = Math.ceil(duration * sampleRate);
-                outputBuffer = this.ctx.createBuffer(2, totalSamples, sampleRate);
-                const leftCh = outputBuffer.getChannelData(0);
-                const rightCh = outputBuffer.getChannelData(1);
-
-                try {
-                    sourceNode = this.ctx.createMediaElementSource(media);
-                    scriptNode = this.ctx.createScriptProcessor(4096, 2, 2);
-                    
-                    // Silent Gain Node so fast-forward capture isn't audible
-                    gainNode = this.ctx.createGain();
-                    gainNode.gain.value = 0.0;
-
-                    sourceNode.connect(scriptNode);
-                    scriptNode.connect(gainNode);
-                    gainNode.connect(this.ctx.destination);
-
-                    scriptNode.onaudioprocess = (e) => {
-                        if (isDone) return;
-                        const inLeft = e.inputBuffer.getChannelData(0);
-                        const inRight = e.inputBuffer.getChannelData(1);
-                        const len = inLeft.length;
-
-                        for (let i = 0; i < len; i++) {
-                            if (writeOffset + i < totalSamples) {
-                                leftCh[writeOffset + i] = inLeft[i];
-                                rightCh[writeOffset + i] = inRight[i];
-                            }
-                        }
-                        writeOffset += len;
-
-                        if (writeOffset >= totalSamples || media.ended) {
-                            finish();
-                        }
-                    };
-
-                    media.playbackRate = 8.0; // 8x speed fast capture
-                    media.play().catch(() => {
-                        finish();
-                    });
-                } catch (err) {
-                    console.warn("MediaElementAudioSourceNode capture setup error:", err);
-                    finish();
-                }
-            };
-
-            media.onerror = () => finish();
-            setTimeout(() => finish(), 4000);
-
-            // Trigger media loading
-            media.src = objectUrl;
-        });
     }
 
     /**
@@ -375,23 +258,18 @@ class AudioEngine {
             const isVideo = blob.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)$/i.test(blob.name || '');
             const media = document.createElement(isVideo ? 'video' : 'audio');
             media.preload = 'metadata';
+            media.src = objectUrl;
             media.muted = true;
 
-            let isResolved = false;
-
             const cleanup = () => {
-                try {
-                    media.removeAttribute('src');
-                    media.load();
-                } catch (e) {}
+                media.removeAttribute('src');
+                media.load();
                 URL.revokeObjectURL(objectUrl);
             };
 
             const sampleRate = (this.ctx && this.ctx.sampleRate) ? this.ctx.sampleRate : 44100;
 
             const finishWithDuration = (durationSec) => {
-                if (isResolved) return;
-                isResolved = true;
                 const dur = (durationSec && !isNaN(durationSec) && durationSec > 0 && durationSec !== Infinity) ? durationSec : 120;
                 const numSamples = Math.ceil(dur * sampleRate);
                 const fallbackBuffer = this.ctx.createBuffer(2, Math.max(numSamples, sampleRate), sampleRate);
@@ -399,7 +277,6 @@ class AudioEngine {
                 resolve(fallbackBuffer);
             };
 
-            // Set handlers BEFORE setting src so events are never missed!
             media.onloadedmetadata = () => {
                 finishWithDuration(media.duration);
             };
@@ -408,18 +285,10 @@ class AudioEngine {
                 finishWithDuration(120);
             };
 
-            // 1.5 second safety guard
+            // 3-second safety timeout guard
             setTimeout(() => {
                 finishWithDuration(120);
-            }, 1500);
-
-            // Now trigger media loading
-            media.src = objectUrl;
-
-            // Handle synchronous load if already cached/ready
-            if (media.readyState >= 1) {
-                finishWithDuration(media.duration);
-            }
+            }, 3000);
         });
     }
 
