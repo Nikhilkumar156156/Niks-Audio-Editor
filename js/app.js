@@ -746,6 +746,24 @@ class AppController {
         });
     }
 
+    // Helper to check if audio buffer has real non-zero PCM audio data
+    hasRealAudioData(buffer) {
+        if (!buffer) return false;
+        try {
+            const data = buffer.getChannelData(0);
+            if (!data || data.length === 0) return false;
+            const step = Math.max(1, Math.floor(data.length / 500));
+            for (let i = 0; i < data.length; i += step) {
+                if (Math.abs(data[i]) > 0.001) {
+                    return true;
+                }
+            }
+        } catch (e) {
+            return false;
+        }
+        return false;
+    }
+
     // Load a local Audio or Video File
     async loadFile(file) {
         const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)$/i.test(file.name);
@@ -815,12 +833,18 @@ class AppController {
         if (isVideo && videoUrl && this.videoPlayer) {
             this.isVideoLoaded = true;
             this.videoPlayer.src = videoUrl;
+            this.videoPlayer.muted = false; // Always unmute native video audio!
+            this.videoPlayer.volume = 1.0;
             this.videoPlayer.load();
+            
             if (this.modeToggleContainer) this.modeToggleContainer.style.display = 'flex';
             this.setWorkspaceMode('video');
         } else {
             this.isVideoLoaded = false;
-            if (this.videoPlayer) this.videoPlayer.src = '';
+            if (this.videoPlayer) {
+                this.videoPlayer.src = '';
+                this.videoPlayer.muted = false;
+            }
             if (this.modeToggleContainer) this.modeToggleContainer.style.display = 'none';
             this.setWorkspaceMode('audio');
         }
@@ -881,6 +905,8 @@ class AppController {
         `;
 
         if (this.isVideoLoaded && this.videoPlayer) {
+            this.videoPlayer.muted = false;
+            this.videoPlayer.volume = 1.0;
             this.syncVideoToPlayhead(offset);
         }
 
@@ -1526,27 +1552,35 @@ class AppController {
 
         if (activeClip) {
             if (this.videoGapOverlay) this.videoGapOverlay.style.display = 'none';
-            const speed = activeClip.speed || 1.0;
+            const clipSpeed = activeClip.speed || 1.0;
             const timeOffset = time - activeClip.timelineStart;
-            const targetVideoTime = activeClip.originalStart + timeOffset * speed;
-
-            if (this.videoPlayer.playbackRate !== speed) {
-                this.videoPlayer.playbackRate = speed;
-            }
+            const targetVideoTime = activeClip.originalStart + timeOffset * clipSpeed;
 
             if (isPlaying) {
                 if (this.videoPlayer.paused) {
-                    if (Math.abs(this.videoPlayer.currentTime - targetVideoTime) > 0.05) {
+                    this.videoPlayer.playbackRate = clipSpeed;
+                    if (Math.abs(this.videoPlayer.currentTime - targetVideoTime) > 0.08) {
                         this.videoPlayer.currentTime = targetVideoTime;
                     }
                     this.videoPlayer.play().catch(() => {});
                     this.lastActiveVideoClipId = activeClip.id;
                 } else {
                     const clipChanged = this.lastActiveVideoClipId !== activeClip.id;
-                    const drift = Math.abs(this.videoPlayer.currentTime - targetVideoTime);
-                    if (clipChanged || drift > 0.25) {
+                    const drift = this.videoPlayer.currentTime - targetVideoTime;
+
+                    if (clipChanged) {
+                        this.videoPlayer.playbackRate = clipSpeed;
                         this.videoPlayer.currentTime = targetVideoTime;
                         this.lastActiveVideoClipId = activeClip.id;
+                    } else if (Math.abs(drift) > 0.6) {
+                        // Perform hard keyframe seek only on large drift (> 600ms) to prevent decoder lag
+                        this.videoPlayer.currentTime = targetVideoTime;
+                    } else if (Math.abs(drift) > 0.08) {
+                        // Smooth micro-nudge playbackRate so video catches up effortlessly without stuttering
+                        const nudge = drift > 0 ? -0.04 : 0.04;
+                        this.videoPlayer.playbackRate = Math.max(0.25, Math.min(4.0, clipSpeed + nudge));
+                    } else {
+                        this.videoPlayer.playbackRate = clipSpeed;
                     }
                 }
             } else {
