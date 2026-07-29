@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Niks Audio Editor</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <!-- Header Panel -->
+    <header>
+        <div class="brand">
+            <span class="brand-dot"></span>
+            <h1>Niks Audio Editor</h1>
+        </div>
+
+        <nav class="header-nav">
+            <a href="about.html" class="nav-link" id="nav-about-link">About & Help</a>
+        </nav>
+
+        <!-- Header Controls Row (View Mode Switcher & Mobile Detection Settings Button) -->
+        <div id="header-controls-group" class="header-controls-group">
+            <button id="mobile-open-scanner-modal-btn" class="btn-primary mobile-detection-btn">DETECTION SETTINGS</button>
+            
+            <div id="mode-toggle-container" class="mode-toggle-container" style="display: none;">
+                <button id="mode-audio-btn" class="mode-btn active" title="Audio Only View">🎵 Audio</button>
+                <button id="mode-video-btn" class="mode-btn" title="Video Sync View">🎬 Video</button>
+            </div>
+        </div>
+
+        <div class="loader-panel">
+            <button id="open-url-modal-btn" class="btn-secondary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                </svg>
+                Load from URL
+            </button>
+            
+            <label for="audio-file" class="file-label-btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                </svg>
+                Import Media
+            </label>
+            <input type="file" id="audio-file" accept="audio/*,video/*,.mp4,.webm,.mov,.mkv,.avi,.flv,.wmv,.m4v,.3gp,.ts,.aac,.ogg,.flac,.m4a,.wav,.mp3">
+        </div>
+    </header>
+
+    <!-- Main Workspace Container -->
+    <div class="app-container">
+        
+        <!-- Sidebar: Audio Controls & Parameters -->
+        <aside class="sidebar">
+            
+            <!-- Silence/Repeat Detection Settings Panel -->
+            <section class="panel-card" id="scanner-panel-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; width: 100%;">
+                    <h2 style="margin-bottom: 0;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Detection Settings</h2>
+                    <button id="close-scanner-modal" class="btn-icon" title="Close Scanner">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+                
+                <!-- Silence Threshold -->
+                <div class="control-row">
+                    <div class="control-header">
+                        <span>Silence Threshold</span>
+                        <span id="gap-threshold-val" class="control-val">-40 dB</span>
+                    </div>
+                    <input type="range" id="gap-threshold" min="-60" max="-20" value="-40" step="1">
+                </div>
+
+                <!-- Min Silence Duration -->
+                <div class="control-row">
+                    <div class="control-header">
+                        <span>Min Gap Duration</span>
+                        <span id="gap-duration-val" class="control-val">300 ms</span>
+                    </div>
+                    <input type="range" id="gap-duration" min="100" max="2000" value="300" step="50">
+                </div>
+
+                <!-- Repeat Similarity -->
+                <div class="control-row">
+                    <div class="control-header">
+                        <span>Repeat Sensitivity</span>
+                        <span id="repeat-threshold-val" class="control-val">0.45</span>
+                    </div>
+                    <input type="range" id="repeat-threshold" min="10" max="90" value="45" step="5">
+                </div>
+
+                <div class="control-row" style="margin-top: 1rem; flex-direction: row; gap: 0.5rem;">
+                    <button id="scan-gaps-btn" class="btn-primary" disabled style="flex: 1; justify-content: center; padding: 0.65rem 0.5rem; font-size: 0.85rem;">Gaps</button>
+                    <button id="scan-repeats-btn" class="btn-primary" disabled style="flex: 1; justify-content: center; padding: 0.65rem 0.5rem; font-size: 0.85rem; background: linear-gradient(135deg, rgba(217,119,6,0.1) 0%, rgba(0,0,0,0.5) 100%); border: 1px solid var(--repeat-color); color: var(--repeat-color); box-shadow: none;">Repeat</button>
+                </div>
+            </section>
+
+            <!-- Enhancers & Effects Panel -->
+            <section class="panel-card" id="fx-panel-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; width: 100%;">
+                    <h2 style="margin-bottom: 0;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Voice & FX</h2>
+                    <button id="close-fx-modal" class="btn-icon" title="Close FX">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="switch-row">
+                    <span class="switch-label">Voice Enhancer</span>
+                    <label class="switch">
+                        <input type="checkbox" id="enhancer-toggle">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="switch-row">
+                    <span class="switch-label">Compressor</span>
+                    <label class="switch">
+                        <input type="checkbox" id="compressor-toggle">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <!-- Noise Gate -->
+                <div class="control-row">
+                    <div class="control-header">
+                        <span>Noise Gate</span>
+                        <span id="noise-gate-val" class="control-val">-45 dB</span>
+                    </div>
+                    <input type="range" id="noise-gate" min="-90" max="-10" value="-45" step="1">
+                </div>
+
+                <!-- Speed Control -->
+                <div class="control-row">
+                    <div class="control-header">
+                        <span>Playback Speed</span>
+                        <span id="speed-val" class="control-val">1.00x</span>
+                    </div>
+                    <input type="range" id="speed-slider" min="0.5" max="2.0" value="1.0" step="0.05">
+                </div>
+            </section>
+
+            <!-- Actions Panel -->
+            <section class="panel-card" id="actions-panel-card" style="display: flex; flex-direction: column; gap: 0.75rem; justify-content: center;">
+                <button id="open-eq-modal-btn" class="btn-primary" style="width: 100%; justify-content: center; gap: 0.5rem;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                        <path d="M4 10h16M4 14h16M4 18h16M4 6h16"/>
+                    </svg>5-Band EQ
+                </button>
+                
+                <button id="export-btn" class="btn-primary" disabled style="width: 100%; justify-content: center; gap: 0.5rem;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                    </svg>Export
+                </button>
+                
+                <select id="export-format" class="export-select-standalone" title="Export Format">
+                    <option value="wav">WAV</option>
+                    <option value="mp3">MP3</option>
+                    <option value="aac">AAC</option>
+                    <option value="webm">WebM Video</option>
+                    <option value="mp4">MP4 Video</option>
+                </select>
+            </section>
+
+            <!-- Equalizer Panel -->
+            <section class="panel-card" id="eq-panel-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; width: 100%;">
+                    <h2 style="margin-bottom: 0;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M4 10h16M4 14h16M4 18h16M4 6h16"/></svg>5-Band EQ</h2>
+                    <button id="close-eq-modal" class="btn-icon" title="Close EQ">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div class="switch-row" style="margin-bottom: 1rem;">
+                    <span class="switch-label">Parametric tuning</span>
+                    <label class="switch" title="Toggle Parametric Freq/Q Tuning">
+                        <input type="checkbox" id="parametric-toggle">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                
+                <!-- Band 1: Low Shelf -->
+                <div class="control-row">
+                    <div class="control-header">
+                        <span class="eq-label"><span class="full-text">Low Gain (Bass)</span><span class="short-text">Bass</span></span>
+                        <span id="eq-band1-gain-val" class="control-val">0 dB</span>
+                    </div>
+                    <input type="range" id="eq-band1-gain" min="-12" max="12" value="0" step="1">
+                    
+                    <div class="parametric-subrow" style="display: none; gap: 0.5rem; margin-top: 0.25rem;">
+                        <div style="flex: 1;">
+                            <div class="control-header" style="font-size: 0.7rem;"><span>Freq (Hz)</span><span id="eq-band1-freq-val" style="color: var(--primary-purple);">100</span></div>
+                            <input type="range" id="eq-band1-freq" min="40" max="300" value="100" step="5" style="height: 2px;">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Band 2: Peaking 1 -->
+                <div class="control-row">
+                    <div class="control-header">
+                        <span class="eq-label"><span class="full-text">Low-Mid Gain</span><span class="short-text">L-Mid</span></span>
+                        <span id="eq-band2-gain-val" class="control-val">0 dB</span>
+                    </div>
+                    <input type="range" id="eq-band2-gain" min="-12" max="12" value="0" step="1">
+                    
+                    <div class="parametric-subrow" style="display: none; gap: 0.5rem; margin-top: 0.25rem;">
+                        <div style="flex: 1.2;">
+                            <div class="control-header" style="font-size: 0.7rem;"><span>Freq (Hz)</span><span id="eq-band2-freq-val" style="color: var(--primary-purple);">400</span></div>
+                            <input type="range" id="eq-band2-freq" min="200" max="1000" value="400" step="10" style="height: 2px;">
+                        </div>
+                        <div style="flex: 0.8;">
+                            <div class="control-header" style="font-size: 0.7rem;"><span>Q</span><span id="eq-band2-q-val" style="color: var(--primary-purple);">1.0</span></div>
+                            <input type="range" id="eq-band2-q" min="1" max="100" value="10" step="5" style="height: 2px;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Band 3: Peaking 2 -->
+                <div class="control-row">
+                    <div class="control-header">
+                        <span class="eq-label"><span class="full-text">Mid Gain</span><span class="short-text">Mid</span></span>
+                        <span id="eq-band3-gain-val" class="control-val">0 dB</span>
+                    </div>
+                    <input type="range" id="eq-band3-gain" min="-12" max="12" value="0" step="1">
+                    
+                    <div class="parametric-subrow" style="display: none; gap: 0.5rem; margin-top: 0.25rem;">
+                        <div style="flex: 1.2;">
+                            <div class="control-header" style="font-size: 0.7rem;"><span>Freq (Hz)</span><span id="eq-band3-freq-val" style="color: var(--primary-purple);">1000</span></div>
+                            <input type="range" id="eq-band3-freq" min="800" max="3000" value="1000" step="20" style="height: 2px;">
+                        </div>
+                        <div style="flex: 0.8;">
+                            <div class="control-header" style="font-size: 0.7rem;"><span>Q</span><span id="eq-band3-q-val" style="color: var(--primary-purple);">1.0</span></div>
+                            <input type="range" id="eq-band3-q" min="1" max="100" value="10" step="5" style="height: 2px;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Band 4: Peaking 3 -->
+                <div class="control-row">
+                    <div class="control-header">
+                        <span class="eq-label"><span class="full-text">High-Mid Gain</span><span class="short-text">H-Mid</span></span>
+                        <span id="eq-band4-gain-val" class="control-val">0 dB</span>
+                    </div>
+                    <input type="range" id="eq-band4-gain" min="-12" max="12" value="0" step="1">
+                    
+                    <div class="parametric-subrow" style="display: none; gap: 0.5rem; margin-top: 0.25rem;">
+                        <div style="flex: 1.2;">
+                            <div class="control-header" style="font-size: 0.7rem;"><span>Freq (Hz)</span><span id="eq-band4-freq-val" style="color: var(--primary-purple);">3000</span></div>
+                            <input type="range" id="eq-band4-freq" min="2000" max="6000" value="3000" step="50" style="height: 2px;">
+                        </div>
+                        <div style="flex: 0.8;">
+                            <div class="control-header" style="font-size: 0.7rem;"><span>Q</span><span id="eq-band4-q-val" style="color: var(--primary-purple);">1.0</span></div>
+                            <input type="range" id="eq-band4-q" min="1" max="100" value="10" step="5" style="height: 2px;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Band 5: High Shelf -->
+                <div class="control-row">
+                    <div class="control-header">
+                        <span class="eq-label"><span class="full-text">Treble Gain</span><span class="short-text">Treble</span></span>
+                        <span id="eq-band5-gain-val" class="control-val">0 dB</span>
+                    </div>
+                    <input type="range" id="eq-band5-gain" min="-12" max="12" value="0" step="1">
+                    
+                    <div class="parametric-subrow" style="display: none; gap: 0.5rem; margin-top: 0.25rem;">
+                        <div style="flex: 1;">
+                            <div class="control-header" style="font-size: 0.7rem;"><span>Freq (Hz)</span><span id="eq-band5-freq-val" style="color: var(--primary-purple);">8000</span></div>
+                            <input type="range" id="eq-band5-freq" min="5000" max="16000" value="8000" step="100" style="height: 2px;">
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Mobile Only Drawer (shown only on mobile) -->
+            <div id="mobile-controls-drawer" class="mobile-only-drawer">
+                <div class="mobile-drawer-row">
+                    <button id="mobile-scan-gaps-btn" class="mobile-drawer-btn btn-gaps" disabled>Scan Silence Gaps</button>
+                    <button id="mobile-scan-repeats-btn" class="mobile-drawer-btn btn-repeats" disabled>Scan for Repeats</button>
+                </div>
+                <div class="mobile-drawer-row">
+                    <button id="mobile-fx-btn" class="mobile-drawer-btn btn-fx">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="margin-right: 0.25rem;">
+                            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                        </svg>Voice & FX
+                    </button>
+                    <button id="mobile-eq-btn" class="mobile-drawer-btn btn-eq">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="margin-right: 0.25rem;">
+                            <path d="M4 10h16M4 14h16M4 18h16M4 6h16"/>
+                        </svg>5-Band EQ
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Timeline & Transport panel -->
+        <main class="main-workspace">
+
+            <!-- Workspace Content Container -->
+            <div class="workspace-content" id="workspace-content">
+
+                <!-- Video Preview Container (active in Video Mode) -->
+                <div id="video-preview-card" class="video-preview-card" style="display: none;">
+                    <div class="video-preview-header">
+                        <div class="video-title-wrap">
+                            <span class="video-title-text">Video Sync Preview</span>
+                        </div>
+                    </div>
+                    <div class="video-container">
+                        <span class="video-indicator-dot video-overlay-dot"></span>
+                        <button id="toggle-video-size-btn" class="btn-icon video-overlay-expand" title="Toggle Video Scale">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                            </svg>
+                        </button>
+                        <video id="video-preview-player" playsinline muted preload="auto"></video>
+                        <div id="video-gap-overlay" class="video-gap-overlay" style="display: none;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                                <path d="M10 4v16M10 12h8M15 8l4 4-4 4"/>
+                            </svg>
+                            <span>Silence Gap (Video Paused)</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Timeline Canvas wrapper -->
+                <div class="timeline-wrapper" id="timeline-wrapper">
+                    <canvas id="timeline-canvas"></canvas>
+                    
+                    <!-- Empty State Placeholder (gorgeous red/purple pulse) -->
+                    <div id="empty-state" class="empty-state">
+                        <div class="empty-state-card">
+                            <div class="empty-icon-container">
+                                <div class="empty-wave-pulse red"></div>
+                                <div class="empty-wave-pulse purple"></div>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="44" height="44" class="empty-icon">
+                                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                                    <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v4M4 22h16"/>
+                                </svg>
+                            </div>
+                            <h3>No Media Loaded</h3>
+                            <p>Drag & drop an audio or video file here, load a remote URL, or record live using your microphone.</p>
+                            
+                            <div class="empty-actions">
+                                <button class="btn-primary" onclick="document.getElementById('audio-file').click();">
+                                    Import File
+                                </button>
+                                <button class="btn-primary" id="empty-rec-btn" style="background: linear-gradient(135deg, rgba(255,0,50,0.1) 0%, rgba(0,0,0,0.5) 100%); border: 1px solid var(--primary-red); color: var(--primary-red); box-shadow: none;">
+                                    Record Live
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
+            <!-- Toolbar Panel -->
+            <footer class="toolbar">
+                
+                <!-- Left: playback controls and live record -->
+                <div class="transport-controls">
+                    <button id="play-btn" class="btn-primary">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                            <path d="M8 5v14l11-7z"/>
+                        </svg><span class="btn-text"> Play</span>
+                    </button>
+                    
+                    <button id="stop-btn" class="btn-icon" title="Stop">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                            <path d="M6 6h12v12H6z"/>
+                        </svg>
+                    </button>
+                    
+                    <button id="rec-btn" class="btn-primary">
+                        <span class="rec-dot"></span><span class="btn-text"> Record (Live)</span>
+                    </button>
+
+                    <div class="rec-status" id="rec-status">
+                        <span class="rec-dot pulsing"></span><span class="btn-text"> Recording...</span>
+                    </div>
+                </div>
+
+                <!-- Center: Time indicator -->
+                <div class="time-display-container">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20" style="color: var(--primary-red);">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                    <span id="time-display">00:00.00</span>
+                </div>
+
+                <!-- Mobile Export Controls (Single Download Button opening format pop-up) -->
+                <div class="mobile-export-container">
+                    <button id="mobile-export-btn" class="btn-icon" title="Export File">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Right: zoom, undo/redo -->
+                <div class="toolbar-right">
+                    <div class="action-controls">
+                        <button id="cut-btn" class="btn-icon" title="Cut Selected (Ctrl+X)" disabled>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                                <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/>
+                                <line x1="9.8" y1="8.5" x2="20" y2="17"/>
+                                <line x1="14" y1="12" x2="20" y2="7"/>
+                                <line x1="6" y1="9" x2="6" y2="15"/>
+                            </svg>
+                        </button>
+                        <button id="copy-btn" class="btn-icon" title="Copy Selected (Ctrl+C)" disabled>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                            </svg>
+                        </button>
+                        <button id="paste-btn" class="btn-icon" title="Paste at Playhead (Ctrl+V)" disabled>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+                            </svg>
+                        </button>
+                        <button id="split-btn" class="btn-icon" title="Split Segment at Playhead (S)" disabled>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                                <path d="M16 22V2"/>
+                                <path d="M5 8h6M13 8h6"/>
+                                <path d="M5 16h6M13 16h6"/>
+                            </svg>
+                        </button>
+                        <button id="insert-gap-btn" class="btn-icon" title="Insert Silence Gap (G)" disabled>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                                <path d="M10 4v16"/>
+                                <path d="M10 12h8M15 8l4 4-4 4"/>
+                            </svg>
+                        </button>
+
+                        <span style="width: 1px; height: 24px; background: rgba(255,255,255,0.1); margin: 0 0.5rem;"></span>
+
+                        <button id="zoom-out-btn" class="btn-icon" title="Zoom Out" style="font-size: 1.2rem; font-weight: 500; font-family: 'Outfit', sans-serif; padding-bottom: 2px;">-</button>
+                        <button id="zoom-in-btn" class="btn-icon" title="Zoom In" style="font-size: 1.2rem; font-weight: 500; font-family: 'Outfit', sans-serif; padding-bottom: 2px;">+</button>
+
+                        <span style="width: 1px; height: 24px; background: rgba(255,255,255,0.1); margin: 0 0.5rem;"></span>
+
+                        <button id="undo-btn" class="btn-icon" title="Undo" disabled>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="18" height="18">
+                                <path d="M3 7v6h6M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+                            </svg>
+                        </button>
+                        <button id="redo-btn" class="btn-icon" title="Redo" disabled>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="18" height="18">
+                                <path d="M21 7v6h-6M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </footer>
+        </main>
+    <!-- Floating popover menu for Gaps and Repeats delete options -->
+    <div id="timeline-popover" class="timeline-popover">
+        <!-- Populated dynamically via timeline.js -->
+    </div>
+
+    <!-- Modal Backdrop for Mobile EQ -->
+    <div id="modal-backdrop" class="modal-backdrop"></div>
+
+    <!-- URL Loader Modal -->
+    <div id="url-modal" class="modal-card url-modal">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+            <h2 style="margin-bottom: 0; font-family: 'Outfit', sans-serif; font-size: 1.15rem; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="color: var(--primary-red); filter: drop-shadow(0 0 5px var(--primary-red-glow));">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                </svg>
+                Load from URL
+            </h2>
+            <button id="close-url-modal" class="btn-icon" title="Close" style="width: 28px; height: 28px; padding: 0;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+        </div>
+        <div class="control-row" style="margin-bottom: 0;">
+            <input type="text" id="audio-url" placeholder="https://example.com/audio.mp3" style="width: 100%; background: rgba(0, 0, 0, 0.65); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.65rem 0.85rem; color: #fff; font-size: 0.85rem; outline: none; margin-bottom: 1.25rem;">
+            <button id="load-url-btn" class="btn-primary" style="width: 100%; justify-content: center;">Load Audio</button>
+        </div>
+    </div>
+
+    <!-- Insert Silence Gap Modal -->
+    <div id="gap-modal" class="modal-card url-modal">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+            <h2 style="margin-bottom: 0; font-family: 'Outfit', sans-serif; font-size: 1.15rem; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" style="color: var(--primary-red); filter: drop-shadow(0 0 5px var(--primary-red-glow));">
+                    <path d="M10 4v16M10 12h8M15 8l4 4-4 4"/>
+                </svg>
+                Insert Silence Gap
+            </h2>
+            <button id="close-gap-modal" class="btn-icon" title="Close" style="width: 28px; height: 28px; padding: 0;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+        </div>
+        <div class="control-row" style="margin-bottom: 0;">
+            <label for="gap-duration-input" style="display: block; font-size: 0.8rem; color: rgba(255,255,255,0.7); margin-bottom: 0.5rem;">Gap Duration (seconds):</label>
+            <input type="number" id="gap-duration-input" min="0.1" step="0.1" value="1.0" style="width: 100%; background: rgba(0, 0, 0, 0.65); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.65rem 0.85rem; color: #fff; font-size: 0.85rem; outline: none; margin-bottom: 1.25rem;">
+            <button id="confirm-gap-btn" class="btn-primary" style="width: 100%; justify-content: center;">Insert Gap</button>
+        </div>
+    </div>
+
+    <!-- Export Format Pop-up Modal -->
+    <div id="export-modal" class="modal-card url-modal">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+            <h2 style="margin-bottom: 0; font-family: 'Outfit', sans-serif; font-size: 1.15rem; font-weight: 600; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="18" height="18" style="color: var(--primary-red); filter: drop-shadow(0 0 5px var(--primary-red-glow));">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                </svg>
+                Export Format
+            </h2>
+            <button id="close-export-modal" class="btn-icon" title="Close" style="width: 28px; height: 28px; padding: 0;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+        </div>
+        <div class="control-row" style="margin-bottom: 0;">
+            <label for="modal-export-format" style="display: block; font-size: 0.8rem; color: rgba(255,255,255,0.7); margin-bottom: 0.5rem;">Choose Output Format:</label>
+            <select id="modal-export-format" class="export-select-standalone" style="width: 100%; margin-bottom: 1.25rem; background: rgba(0,0,0,0.75); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 6px; font-size: 0.9rem;">
+                <option value="wav">WAV Audio (.wav)</option>
+                <option value="mp3">MP3 Audio (.mp3)</option>
+                <option value="aac">AAC Audio (.aac)</option>
+                <option value="webm">WebM Video (.webm)</option>
+                <option value="mp4">MP4 Video (.mp4)</option>
+            </select>
+            <button id="modal-export-confirm-btn" class="btn-primary" style="width: 100%; justify-content: center;">Download / Export</button>
+        </div>
+    </div>
+
+    <!-- Fullscreen Glassmorphism Loader -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <div id="loading-text" class="loading-text">Processing...</div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js"></script>
+    <script src="js/detector.js"></script>
+    <script src="js/audio-engine.js"></script>
+    <script src="js/timeline.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
