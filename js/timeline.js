@@ -306,15 +306,8 @@ class AudioTimeline {
                     const peakIndex = Math.floor(sampleIndex / peakStep);
 
                     if (peakIndex >= 0 && peakIndex < this.peaks.max.length) {
-                        let maxVal = this.peaks.max[peakIndex];
-                        let minVal = this.peaks.min[peakIndex];
-
-                        // Guarantee visible waveform bars for active audio/video clips
-                        if (clip.type !== 'gap' && Math.abs(maxVal - minVal) < 0.04) {
-                            const synth = (Math.sin(px * 0.12) * 0.28) + (Math.sin(px * 0.31) * 0.18) + (Math.cos(px * 0.53) * 0.1);
-                            maxVal = Math.max(0.12, Math.abs(synth));
-                            minVal = -maxVal;
-                        }
+                        const maxVal = this.peaks.max[peakIndex];
+                        const minVal = this.peaks.min[peakIndex];
 
                         // Normalize height
                         const centerY = clipY + this.clipHeight / 2;

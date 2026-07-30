@@ -746,24 +746,6 @@ class AppController {
         });
     }
 
-    // Helper to check if audio buffer has real non-zero PCM audio data
-    hasRealAudioData(buffer) {
-        if (!buffer) return false;
-        try {
-            const data = buffer.getChannelData(0);
-            if (!data || data.length === 0) return false;
-            const step = Math.max(1, Math.floor(data.length / 500));
-            for (let i = 0; i < data.length; i += step) {
-                if (Math.abs(data[i]) > 0.001) {
-                    return true;
-                }
-            }
-        } catch (e) {
-            return false;
-        }
-        return false;
-    }
-
     // Load a local Audio or Video File
     async loadFile(file) {
         const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)$/i.test(file.name);
@@ -834,20 +816,11 @@ class AppController {
             this.isVideoLoaded = true;
             this.videoPlayer.src = videoUrl;
             this.videoPlayer.load();
-            
-            // If audioBuffer is silent fallback, unmute HTML5 video so video plays audio natively!
-            const hasAudio = this.hasRealAudioData(audioBuffer);
-            this.videoPlayer.muted = hasAudio;
-            this.videoPlayer.volume = 1.0;
-            
             if (this.modeToggleContainer) this.modeToggleContainer.style.display = 'flex';
             this.setWorkspaceMode('video');
         } else {
             this.isVideoLoaded = false;
-            if (this.videoPlayer) {
-                this.videoPlayer.src = '';
-                this.videoPlayer.muted = true;
-            }
+            if (this.videoPlayer) this.videoPlayer.src = '';
             if (this.modeToggleContainer) this.modeToggleContainer.style.display = 'none';
             this.setWorkspaceMode('audio');
         }
