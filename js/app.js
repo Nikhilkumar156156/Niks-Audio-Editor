@@ -93,6 +93,10 @@ class AppController {
         this.videoObjectUrl = null;
         this.lastActiveVideoClipId = null;
         this.currentWorkspaceMode = 'audio';
+        this.videoPreviewError = false;
+        this.videoBuffer = null;       // hidden 2nd <video> that pre-seeks the next cut
+        this.videoPrepared = null;     // { key, clipId } of the clip the hidden element is prepared for
+        this._lastTimeText = '';
     }
 
     init() {
@@ -106,6 +110,35 @@ class AppController {
                 e.preventDefault();
                 const container = this.videoPreviewCard.querySelector('.video-container');
                 if (container) container.classList.toggle('expanded');
+            });
+        }
+
+        // If the browser can't render the video picture (e.g. unsupported codec) tell the user
+        // instead of showing a silent black box. The audio is still fully editable.
+        if (this.videoPlayer) {
+            // Hidden twin of the preview player. While one element plays, the other is already
+            // seeked to the start of the NEXT cut, so crossing a cut is an instant swap, not a seek.
+            const twin = document.createElement('video');
+            twin.className = 'video-buffer-player video-hidden';
+            twin.muted = true;
+            twin.setAttribute('playsinline', '');
+            twin.preload = 'auto';
+            this.videoPlayer.parentElement.insertBefore(twin, this.videoPlayer.nextSibling);
+            this.videoBuffer = twin;
+
+            [this.videoPlayer, this.videoBuffer].forEach(el => {
+                el.addEventListener('error', () => {
+                    if (el !== this.videoPlayer) return;
+                    if (!this.isVideoLoaded || !el.getAttribute('src')) return;
+                    this.videoPreviewError = true;
+                    this.showVideoOverlay("This video's picture can't be previewed in your browser. Audio editing still works.", true);
+                });
+                // Draw the first frame as soon as it is available
+                el.addEventListener('loadeddata', () => {
+                    if (el !== this.videoPlayer) return;
+                    this.videoPreviewError = false;
+                    this.syncVideoToPlayhead(this.timeline ? this.timeline.playheadTime : 0);
+                });
             });
         }
 
@@ -751,12 +784,14 @@ class AppController {
         const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)$/i.test(file.name);
         this.showLoadingState(true, isVideo ? "Extracting video audio track & decoding..." : "Decoding audio file...");
         try {
-            const audioBuf = await window.audioEngine.decodeAudio(file, file);
+            const audioBuf = await window.audioEngine.decodeAudio(
+                file, file, (msg) => this.showLoadingState(true, msg)
+            );
             const videoUrl = isVideo ? URL.createObjectURL(file) : null;
             this.setNewAudioBuffer(audioBuf, isVideo, videoUrl);
         } catch (err) {
             console.error("Error decoding file:", err);
-            alert(`Could not load media file (${file.name}). Please check that it is a valid audio or video file supported by your browser.`);
+            alert(`Could not load media file (${file.name}).\n\n${err.message || 'Please check that it is a valid audio or video file supported by your browser.'}`);
         } finally {
             this.showLoadingState(false);
         }
@@ -771,7 +806,9 @@ class AppController {
             if (!response.ok) throw new Error("HTTP error " + response.status);
             const blob = await response.blob();
             const arrayBuf = await blob.arrayBuffer();
-            const audioBuf = await window.audioEngine.decodeAudio(arrayBuf, blob);
+            const audioBuf = await window.audioEngine.decodeAudio(
+                arrayBuf, blob, (msg) => this.showLoadingState(true, msg)
+            );
             this.setNewAudioBuffer(audioBuf, isVideo, url);
         } catch (err) {
             console.error("Error fetching URL:", err);
@@ -812,15 +849,24 @@ class AppController {
         }
         this.videoObjectUrl = videoUrl;
 
+        this.videoPreviewError = false;
         if (isVideo && videoUrl && this.videoPlayer) {
             this.isVideoLoaded = true;
+            this.videoPrepared = null;
+            this.lastActiveVideoClipId = null;
             this.videoPlayer.src = videoUrl;
             this.videoPlayer.load();
+            if (this.videoBuffer) {
+                this.videoBuffer.src = videoUrl;
+                this.videoBuffer.load();
+            }
             if (this.modeToggleContainer) this.modeToggleContainer.style.display = 'flex';
             this.setWorkspaceMode('video');
         } else {
             this.isVideoLoaded = false;
             if (this.videoPlayer) this.videoPlayer.src = '';
+            if (this.videoBuffer) this.videoBuffer.src = '';
+            this.videoPrepared = null;
             if (this.modeToggleContainer) this.modeToggleContainer.style.display = 'none';
             this.setWorkspaceMode('audio');
         }
@@ -888,13 +934,15 @@ class AppController {
             offset,
             (currentTime) => {
                 this.timeline.playheadTime = currentTime;
-                this.timeline.draw();
+                this.timeline.drawPlayhead();
                 this.updateTimeDisplay(currentTime);
             },
             () => {
                 // Completed playback
                 if (this.isVideoLoaded && this.videoPlayer) {
                     this.videoPlayer.pause();
+                    if (this.videoBuffer) this.videoBuffer.pause();
+                    this.videoPrepared = null;
                 }
                 this.playBtn.innerHTML = `
                     <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
@@ -1003,7 +1051,7 @@ class AppController {
                 }
 
                 // Extract audio slice data
-                const channelData = this.originalBuffer.getChannelData(0).subarray(startSample, endSample);
+                const channelData = window.AudioDetector.getMonoData(this.originalBuffer).subarray(startSample, endSample);
                 
                 // Construct a mock AudioBuffer for detectGaps
                 const mockBuffer = {
@@ -1470,7 +1518,7 @@ class AppController {
         setTimeout(async () => {
             try {
                 let blob;
-                const filename = `edited_podcast_hq.${format}`;
+                let filename = `edited_podcast_hq.${format}`;
                 
                 if (format === 'mp3') {
                     blob = window.audioEngine.exportMp3(window.audioEngine.renderedBuffer);
@@ -1482,6 +1530,8 @@ class AppController {
                         this.showLoadingState(false);
                         return;
                     }
+                    window.audioEngine.stop();
+                    this.videoPlayer.pause();
                     blob = await window.audioEngine.exportVideoTimeline(
                         this.videoPlayer,
                         this.clips,
@@ -1492,6 +1542,11 @@ class AppController {
                     blob = window.audioEngine.exportWav(window.audioEngine.renderedBuffer);
                 }
                 
+                if (format === 'webm' || format === 'mp4') {
+                    // Browsers can't always record MP4 - name the file after what was really produced
+                    const realExt = (blob.type || '').includes('mp4') ? 'mp4' : 'webm';
+                    filename = `edited_podcast_hq.${realExt}`;
+                }
                 const url = URL.createObjectURL(blob);
                 
                 const a = document.createElement('a');
@@ -1516,53 +1571,126 @@ class AppController {
 
     syncVideoToPlayhead(time) {
         if (!this.isVideoLoaded || !this.videoPlayer) return;
+        if (this.videoPreviewError) return; // keep the error message visible
 
         const isPlaying = window.audioEngine.isPlaying;
-        const activeClips = this.clips.filter(c => !c.deleted);
-        const activeClip = activeClips.find(c => {
+        const globalSpeed = window.audioEngine.effectsSettings.playbackSpeed || 1.0;
+        const clampRate = (r) => Math.min(16, Math.max(0.0625, r));
+
+        // Find the clip under the playhead and the clip that follows it
+        let activeClip = null;
+        let nextClip = null;
+        for (const c of this.clips) {
+            if (c.deleted) continue;
             const dur = (c.originalEnd - c.originalStart) / (c.speed || 1.0);
-            return time >= c.timelineStart && time < c.timelineStart + dur;
-        });
-
-        if (activeClip) {
-            if (this.videoGapOverlay) this.videoGapOverlay.style.display = 'none';
-            const speed = activeClip.speed || 1.0;
-            const timeOffset = time - activeClip.timelineStart;
-            const targetVideoTime = activeClip.originalStart + timeOffset * speed;
-
-            if (this.videoPlayer.playbackRate !== speed) {
-                this.videoPlayer.playbackRate = speed;
+            if (time >= c.timelineStart && time < c.timelineStart + dur) {
+                activeClip = c;
+            } else if (c.timelineStart >= time && (!nextClip || c.timelineStart < nextClip.timelineStart)) {
+                nextClip = c;
             }
+        }
 
-            if (isPlaying) {
-                if (this.videoPlayer.paused) {
-                    if (Math.abs(this.videoPlayer.currentTime - targetVideoTime) > 0.05) {
-                        this.videoPlayer.currentTime = targetVideoTime;
-                    }
-                    this.videoPlayer.play().catch(() => {});
-                    this.lastActiveVideoClipId = activeClip.id;
-                } else {
-                    const clipChanged = this.lastActiveVideoClipId !== activeClip.id;
-                    const drift = Math.abs(this.videoPlayer.currentTime - targetVideoTime);
-                    if (clipChanged || drift > 0.25) {
-                        this.videoPlayer.currentTime = targetVideoTime;
-                        this.lastActiveVideoClipId = activeClip.id;
-                    }
-                }
-            } else {
-                if (!this.videoPlayer.paused) {
-                    this.videoPlayer.pause();
-                }
-                if (Math.abs(this.videoPlayer.currentTime - targetVideoTime) > 0.03) {
-                    this.videoPlayer.currentTime = targetVideoTime;
-                }
-            }
-        } else {
-            if (this.videoGapOverlay) this.videoGapOverlay.style.display = 'flex';
-            if (!this.videoPlayer.paused) {
-                this.videoPlayer.pause();
-            }
+        if (!activeClip) {
+            // Inserted silence (no source clip) - video holds its last frame
+            this.showVideoOverlay('Silence Gap (Video Paused)', false);
+            if (!this.videoPlayer.paused) this.videoPlayer.pause();
             this.lastActiveVideoClipId = null;
+            if (isPlaying) this.prepareNextVideoClip(null, nextClip, globalSpeed);
+            return;
+        }
+
+        this.hideVideoOverlay();
+        const clipSpeed = activeClip.speed || 1.0;
+        const targetVideoTime = activeClip.originalStart + (time - activeClip.timelineStart) * clipSpeed;
+        // Audio plays at (clip speed x global speed slider), so the video must too
+        const rate = clampRate(clipSpeed * globalSpeed);
+
+        if (!isPlaying) {
+            // Paused / scrubbing: show the exact frame
+            const video = this.videoPlayer;
+            if (!video.paused) video.pause();
+            if (this.videoBuffer && !this.videoBuffer.paused) this.videoBuffer.pause();
+            this.lastActiveVideoClipId = null;
+            this.videoPrepared = null;
+            if (video.playbackRate !== rate) video.playbackRate = rate;
+            if (Math.abs(video.currentTime - targetVideoTime) > 0.03) {
+                video.currentTime = targetVideoTime;
+            }
+            return;
+        }
+
+        // ---- Playing ----
+        const clipChanged = this.lastActiveVideoClipId !== activeClip.id;
+        if (clipChanged) {
+            this.lastActiveVideoClipId = activeClip.id;
+
+            // Crossed a cut: if the hidden element was pre-seeked to this clip, swap to it instantly.
+            // (If the clip simply continues in the source - e.g. speech -> detected gap - nothing is needed.)
+            const prep = this.videoPrepared;
+            if (prep && prep.clipId === activeClip.id && this.videoBuffer &&
+                Math.abs(this.videoBuffer.currentTime - targetVideoTime) < 0.5) {
+                this.swapVideoElements();
+            }
+        }
+
+        const video = this.videoPlayer;
+        if (!video.seeking) {
+            const drift = video.currentTime - targetVideoTime; // + = video ahead of audio
+            let wantedRate = rate;
+            if (Math.abs(drift) > 0.4) {
+                // Far off (scrub, start of playback, failed pre-seek): hard seek
+                video.currentTime = targetVideoTime;
+            } else if (Math.abs(drift) > 0.06) {
+                // Slightly off: gently speed up / slow down instead of seeking (seeking causes stutter)
+                const nudge = Math.max(-0.3, Math.min(0.3, drift)) * 0.5;
+                wantedRate = clampRate(rate * (1 - nudge));
+            }
+            if (Math.abs(video.playbackRate - wantedRate) > 0.02) video.playbackRate = wantedRate;
+        }
+        if (video.paused) video.play().catch(() => {});
+
+        this.prepareNextVideoClip(activeClip, nextClip, globalSpeed);
+    }
+
+    // Pre-seek the hidden video element to where the next clip starts (only needed when it is a real jump in the source)
+    prepareNextVideoClip(activeClip, nextClip, globalSpeed) {
+        if (!this.videoBuffer || !nextClip) return;
+        if (activeClip && Math.abs(nextClip.originalStart - activeClip.originalEnd) < 0.05) {
+            this.videoPrepared = null; // continuous in the source - no seek needed
+            return;
+        }
+        const key = `${nextClip.id}:${nextClip.originalStart.toFixed(3)}`;
+        if (this.videoPrepared && this.videoPrepared.key === key) return;
+
+        const buf = this.videoBuffer;
+        buf.pause();
+        buf.playbackRate = Math.min(16, Math.max(0.0625, (nextClip.speed || 1.0) * globalSpeed));
+        buf.currentTime = nextClip.originalStart;
+        this.videoPrepared = { key, clipId: nextClip.id };
+    }
+
+    swapVideoElements() {
+        const oldPlayer = this.videoPlayer;
+        const newPlayer = this.videoBuffer;
+        newPlayer.classList.remove('video-hidden');
+        oldPlayer.classList.add('video-hidden');
+        oldPlayer.pause();
+        this.videoPlayer = newPlayer;
+        this.videoBuffer = oldPlayer;
+        this.videoPrepared = null;
+    }
+
+    showVideoOverlay(message, isError = false) {
+        if (!this.videoGapOverlay) return;
+        const label = this.videoGapOverlay.querySelector('span');
+        if (label && label.textContent !== message) label.textContent = message;
+        this.videoGapOverlay.classList.toggle('video-error', !!isError);
+        this.videoGapOverlay.style.display = 'flex';
+    }
+
+    hideVideoOverlay() {
+        if (this.videoGapOverlay && this.videoGapOverlay.style.display !== 'none') {
+            this.videoGapOverlay.style.display = 'none';
         }
     }
 
@@ -1576,10 +1704,10 @@ class AppController {
             return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
         };
 
-        if (totalSec > 0) {
-            this.timeDisplay.innerText = `${formatTime(sec)} / ${formatTime(totalSec)}`;
-        } else {
-            this.timeDisplay.innerText = formatTime(sec);
+        const text = totalSec > 0 ? `${formatTime(sec)} / ${formatTime(totalSec)}` : formatTime(sec);
+        if (text !== this._lastTimeText) {
+            this._lastTimeText = text;
+            this.timeDisplay.innerText = text;
         }
 
         this.syncVideoToPlayhead(sec);

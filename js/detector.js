@@ -5,6 +5,28 @@
  * 2. DTW (Dynamic Time Warping) based Repeat Phrase Detection
  */
 
+// Cache of mono mix-downs (so repeat detection doesn't re-mix on every call)
+const monoMixCache = new WeakMap();
+
+/**
+ * Returns a single-channel Float32Array for an AudioBuffer (average of all channels).
+ * Works with real AudioBuffers and with the lightweight mock buffers used by the app.
+ */
+function getMonoData(audioBuffer) {
+    const numCh = audioBuffer.numberOfChannels || 1;
+    if (numCh < 2) return audioBuffer.getChannelData(0);
+    if (monoMixCache.has(audioBuffer)) return monoMixCache.get(audioBuffer);
+    const first = audioBuffer.getChannelData(0);
+    const out = new Float32Array(first.length);
+    for (let c = 0; c < numCh; c++) {
+        const ch = audioBuffer.getChannelData(c);
+        for (let i = 0; i < out.length; i++) out[i] += ch[i];
+    }
+    for (let i = 0; i < out.length; i++) out[i] /= numCh;
+    monoMixCache.set(audioBuffer, out);
+    return out;
+}
+
 // Helper: Convert amplitude to Decibels
 function amplitudeToDb(amplitude) {
     return 20 * Math.log10(Math.max(amplitude, 1e-5));
@@ -19,8 +41,13 @@ function amplitudeToDb(amplitude) {
  */
 function detectGaps(audioBuffer, thresholdDb, minGapDurationMs) {
     const sampleRate = audioBuffer.sampleRate;
-    const data = audioBuffer.getChannelData(0); // Analyze first channel
-    const totalSamples = data.length;
+    // Analyze ALL channels (video soundtracks often carry dialogue only on one
+    // channel, e.g. the centre of a 5.1 mix). A frame is "silent" only if every
+    // channel is below the threshold.
+    const numCh = audioBuffer.numberOfChannels || 1;
+    const channels = [];
+    for (let c = 0; c < numCh; c++) channels.push(audioBuffer.getChannelData(c));
+    const totalSamples = channels[0].length;
     const duration = audioBuffer.duration;
 
     // Define frame size for analysis (e.g., 20ms frames)
@@ -41,11 +68,15 @@ function detectGaps(audioBuffer, thresholdDb, minGapDurationMs) {
 
         if (count <= 0) continue;
 
-        let sumSquares = 0;
-        for (let i = startSample; i < endSample; i++) {
-            sumSquares += data[i] * data[i];
+        let rms = 0;
+        for (let c = 0; c < channels.length; c++) {
+            const data = channels[c];
+            let sumSquares = 0;
+            for (let i = startSample; i < endSample; i++) {
+                sumSquares += data[i] * data[i];
+            }
+            rms = Math.max(rms, Math.sqrt(sumSquares / count));
         }
-        const rms = Math.sqrt(sumSquares / count);
         const isSilent = rms < thresholdAmp;
 
         silentFrames.push(isSilent);
@@ -279,7 +310,7 @@ function extractSpectrogram(channelData, startSec, endSec, sampleRate, frameRate
  * @returns {Array<Object>} List of segments annotated with status ('normal', 'repeat', 'final') and group IDs.
  */
 function detectRepeats(audioBuffer, speechSegments, similarityThreshold = 0.45) {
-    const channelData = audioBuffer.getChannelData(0);
+    const channelData = getMonoData(audioBuffer);
     const sampleRate = audioBuffer.sampleRate;
 
     // 1. Extract spectrograms for all segments
@@ -383,6 +414,7 @@ function detectRepeats(audioBuffer, speechSegments, similarityThreshold = 0.45) 
 window.AudioDetector = {
     detectGaps,
     detectRepeats,
+    getMonoData,
     extractSpectrogram,
     computeSubsequenceSpectralDTW
 };

@@ -167,11 +167,73 @@ class AudioTimeline {
         }
     }
 
+    // Full redraw (use after any state change: clips, zoom, scroll, hover, selection...)
     draw() {
         if (!this.canvas || !this.ctx) return;
+        this.renderStaticLayer();
+        this.drawPlayhead();
+    }
+
+    // Lightweight redraw for playback: re-uses the cached waveform/clips layer, only the playhead moves
+    drawPlayhead() {
+        if (!this.canvas || !this.ctx) return;
+        if (!this.staticCanvas ||
+            this.staticCanvas.width !== this.canvas.width ||
+            this.staticCanvas.height !== this.canvas.height) {
+            this.renderStaticLayer();
+        }
         const ctx = this.ctx;
         const w = this.canvas.width;
         const h = this.canvas.height;
+
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        ctx.drawImage(this.staticCanvas, 0, 0);
+        ctx.restore();
+
+        // Draw Playhead (Vertical Red Line)
+        const playheadX = this.timeToX(this.playheadTime);
+        if (playheadX >= 0 && playheadX <= w) {
+            ctx.strokeStyle = '#ff0000';
+            ctx.lineWidth = 1;
+
+            // Subtle glowing shadow for playhead
+            ctx.save();
+            ctx.shadowColor = '#ff0000';
+            ctx.shadowBlur = 4;
+
+            ctx.beginPath();
+            ctx.moveTo(playheadX, 0);
+            ctx.lineTo(playheadX, h);
+            ctx.stroke();
+
+            // Draw Playhead knob (slightly smaller to match the thinner line)
+            ctx.fillStyle = '#ff0000';
+            ctx.beginPath();
+            ctx.arc(playheadX, this.rulerHeight, 3.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    // Draws everything except the playhead into an offscreen canvas
+    renderStaticLayer() {
+        if (!this.canvas) return;
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        if (!this.staticCanvas) {
+            this.staticCanvas = document.createElement('canvas');
+            this.staticCtx = this.staticCanvas.getContext('2d');
+        }
+        if (this.staticCanvas.width !== w || this.staticCanvas.height !== h) {
+            this.staticCanvas.width = w;
+            this.staticCanvas.height = h;
+        }
+        const ctx = this.staticCtx;
+        const dpr = window.devicePixelRatio || 1;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr);
 
         ctx.clearRect(0, 0, w, h);
 
@@ -346,30 +408,6 @@ class AudioTimeline {
                 ctx.fillRect(clipX + clipWidth - 4, clipY, 4, this.clipHeight);
             }
 
-            ctx.restore();
-        }
-
-        // 4. Draw Playhead (Vertical Red Line)
-        const playheadX = this.timeToX(this.playheadTime);
-        if (playheadX >= 0 && playheadX <= w) {
-            ctx.strokeStyle = '#ff0000';
-            ctx.lineWidth = 1;
-            
-            // Subtle glowing shadow for playhead
-            ctx.save();
-            ctx.shadowColor = '#ff0000';
-            ctx.shadowBlur = 4;
-            
-            ctx.beginPath();
-            ctx.moveTo(playheadX, 0);
-            ctx.lineTo(playheadX, h);
-            ctx.stroke();
-            
-            // Draw Playhead knob (slightly smaller to match the thinner line)
-            ctx.fillStyle = '#ff0000';
-            ctx.beginPath();
-            ctx.arc(playheadX, this.rulerHeight, 3.5, 0, Math.PI * 2);
-            ctx.fill();
             ctx.restore();
         }
     }

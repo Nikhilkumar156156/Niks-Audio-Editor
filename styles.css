@@ -1549,9 +1549,15 @@ input:checked + .slider:before {
 /* Video Mode Side-by-Side Grid for Desktop */
 .workspace-content.video-mode {
   display: grid;
-  grid-template-columns: minmax(380px, 460px) 1fr;
+  grid-template-columns: minmax(380px, 460px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 1rem;
-  align-items: start;
+  align-items: stretch;
+}
+
+/* Let the preview grow when the expand button is pressed */
+.workspace-content.video-mode:has(.video-container.expanded) {
+  grid-template-columns: minmax(480px, 55%) minmax(0, 1fr);
 }
 
 .workspace-content.video-mode .video-preview-card {
@@ -1560,6 +1566,14 @@ input:checked + .slider:before {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  align-self: start;
+}
+
+/* The timeline must fill the whole grid cell, otherwise the canvas collapses to 0 height */
+.workspace-content.video-mode .timeline-wrapper {
+  min-height: 0;
+  height: 100%;
+  align-self: stretch;
 }
 
 .workspace-content.video-mode .video-container {
@@ -1617,6 +1631,17 @@ input:checked + .slider:before {
     gap: 0.5rem;
   }
 
+  .workspace-content.video-mode .video-preview-card {
+    flex: 0 0 auto;
+    align-self: stretch;
+  }
+
+  .workspace-content.video-mode .timeline-wrapper {
+    flex: 1 1 auto;
+    min-height: 200px;
+    height: auto;
+  }
+
   .workspace-content.video-mode .video-container {
     aspect-ratio: 16 / 9;
     height: auto;
@@ -1627,7 +1652,32 @@ input:checked + .slider:before {
   }
 }
 
+/* Video preview: message shown when the browser cannot play the video picture */
+.video-gap-overlay span {
+  text-align: center;
+  padding: 0 1rem;
+  line-height: 1.35;
+}
 
+.video-gap-overlay.video-error {
+  color: #fbbf24;
+  background: rgba(15, 10, 10, 0.92);
+}
 
+/* Second (hidden) video element used to pre-load the next cut so playback never stalls on a seek */
+.video-buffer-player {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  display: block;
+}
 
-
+#video-preview-player.video-hidden,
+.video-buffer-player.video-hidden {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
+}

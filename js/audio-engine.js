@@ -192,14 +192,23 @@ class AudioEngine {
     }
 
     /**
-     * Decode an audio file's array buffer or Blob to produce real PCM AudioBuffer.
+     * Decode an audio OR video file into a real PCM AudioBuffer (the audio track).
+     * Gap/repeat detection runs on this buffer, so it must be REAL audio.
+     *
+     * Tier 1: AudioContext.decodeAudioData (fast, works for most mp4/webm/mov/audio files)
+     * Tier 2: Real-time capture of the media element's audio (works for large files or
+     *         containers decodeAudioData rejects, but takes as long as the media itself)
+     * If both fail we throw - we never invent fake audio, because that made gap
+     * detection silently "work" on noise that contained no gaps.
+     *
      * @param {ArrayBuffer|Blob|File} input
      * @param {Blob|File} [fileBlob]
+     * @param {Function} [onProgress] - receives a status string
      * @returns {Promise<AudioBuffer>}
      */
-    async decodeAudio(input, fileBlob = null) {
+    async decodeAudio(input, fileBlob = null, onProgress = null) {
         this.init();
-        
+
         let blob = fileBlob;
         let arrayBuffer = null;
 
@@ -208,13 +217,14 @@ class AudioEngine {
             try {
                 arrayBuffer = await blob.arrayBuffer();
             } catch (e) {
+                // Very large videos can exceed the ArrayBuffer limit - fall through to Tier 2
                 console.warn("Could not read arrayBuffer from Blob/File:", e);
             }
         } else if (input instanceof ArrayBuffer) {
             arrayBuffer = input;
         }
 
-        // Tier 1: Decode using native AudioContext.decodeAudioData
+        // Tier 1: native decode
         if (arrayBuffer) {
             try {
                 const bufferCopy = arrayBuffer.slice(0);
@@ -225,102 +235,155 @@ class AudioEngine {
                     }
                 });
                 if (decoded && decoded.duration > 0) {
-                    console.log("Successfully decoded real PCM audio buffer via Web Audio API. Duration:", decoded.duration);
-                    return decoded;
+                    console.log("Decoded real PCM audio via Web Audio API. Duration:", decoded.duration);
+                    return this.normalizeChannels(decoded);
                 }
             } catch (err) {
-                console.warn("Native decodeAudioData failed, attempting HTML5 MediaElement fallback:", err);
+                console.warn("Native decodeAudioData failed, trying real-time capture:", err);
             }
         }
 
-        // Tier 2: HTML5 MediaElement Fallback (for non-standard video containers)
+        // Tier 2: real-time capture through a media element
         if (blob) {
             try {
-                return await this.decodeAudioFromBlobFallback(blob);
-            } catch (fallbackErr) {
-                console.warn("HTML5 MediaElement fallback warning:", fallbackErr);
+                const captured = await this.decodeAudioByRealtimeCapture(blob, onProgress);
+                if (captured && captured.duration > 0) {
+                    return this.normalizeChannels(captured);
+                }
+            } catch (captureErr) {
+                console.warn("Real-time audio capture failed:", captureErr);
             }
         }
 
-        // Tier 3: Emergency Fallback with visible waveform envelope
-        const sampleRate = (this.ctx && this.ctx.sampleRate) ? this.ctx.sampleRate : 44100;
-        return this.createEnvelopeAudioBuffer(120, sampleRate);
+        throw new Error("No readable audio track was found in this file (it may be silent, have no audio stream, or use an unsupported codec).");
     }
 
     /**
-     * Fallback decoder using HTML5 Audio/Video element
+     * Video soundtracks are frequently 5.1 / surround. The rest of the editor (WAV/MP3/AAC
+     * export, waveform) works with mono/stereo, so fold surround down to stereo.
      */
-    async decodeAudioFromBlobFallback(blob) {
-        return new Promise((resolve) => {
+    normalizeChannels(buffer) {
+        const n = buffer.numberOfChannels;
+        if (n <= 2) return buffer;
+
+        const out = this.ctx.createBuffer(2, buffer.length, buffer.sampleRate);
+        const L = out.getChannelData(0);
+        const R = out.getChannelData(1);
+        const ch = [];
+        for (let c = 0; c < n; c++) ch.push(buffer.getChannelData(c));
+
+        if (n === 6) {
+            // Standard 5.1 order: L, R, C, LFE, Ls, Rs  (LFE is dropped)
+            const k = 0.7071, norm = 1 / (1 + 2 * k);
+            for (let i = 0; i < buffer.length; i++) {
+                L[i] = (ch[0][i] + k * ch[2][i] + k * ch[4][i]) * norm;
+                R[i] = (ch[1][i] + k * ch[2][i] + k * ch[5][i]) * norm;
+            }
+        } else {
+            // Generic: even channels -> left, odd channels -> right
+            let lc = 0, rc = 0;
+            for (let c = 0; c < n; c++) (c % 2 === 0) ? lc++ : rc++;
+            for (let i = 0; i < buffer.length; i++) {
+                let l = 0, r = 0;
+                for (let c = 0; c < n; c++) (c % 2 === 0) ? (l += ch[c][i]) : (r += ch[c][i]);
+                L[i] = l / lc;
+                R[i] = r / Math.max(rc, 1);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Tier-2 decoder: plays the media element silently, records its audio track from a
+     * MediaStreamDestination, then decodes the recording to PCM.
+     * Takes as long as the media's duration.
+     */
+    decodeAudioByRealtimeCapture(blob, onProgress = null) {
+        return new Promise((resolve, reject) => {
+            if (typeof MediaRecorder === 'undefined') {
+                reject(new Error("MediaRecorder is not supported in this browser."));
+                return;
+            }
+
             const objectUrl = URL.createObjectURL(blob);
-            const isVideo = blob.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)$/i.test(blob.name || '');
+            const isVideo = (blob.type || '').startsWith('video/') || /\.(mp4|webm|mov|mkv|avi|flv|wmv|m4v|3gp|ts)$/i.test(blob.name || '');
             const media = document.createElement(isVideo ? 'video' : 'audio');
-            media.preload = 'metadata';
+            media.preload = 'auto';
+            media.playsInline = true;
             media.src = objectUrl;
-            media.muted = true;
+
+            const chunks = [];
+            let recorder = null;
+            let srcNode = null;
+            let timeoutId = null;
+            let progressId = null;
+            let settled = false;
 
             const cleanup = () => {
+                clearTimeout(timeoutId);
+                clearInterval(progressId);
+                try { if (recorder && recorder.state !== 'inactive') recorder.stop(); } catch (e) {}
+                try { if (srcNode) srcNode.disconnect(); } catch (e) {}
+                try { media.pause(); } catch (e) {}
                 media.removeAttribute('src');
                 media.load();
                 URL.revokeObjectURL(objectUrl);
             };
+            const done = (err, result) => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                err ? reject(err) : resolve(result);
+            };
 
-            const sampleRate = (this.ctx && this.ctx.sampleRate) ? this.ctx.sampleRate : 44100;
+            media.onerror = () => done(new Error("The browser cannot play this media file."));
 
             media.onloadedmetadata = async () => {
-                const duration = (media.duration && !isNaN(media.duration) && media.duration > 0 && media.duration !== Infinity) ? media.duration : 120;
-                
-                // Try fetching & decoding ArrayBuffer via OfflineAudioContext or sliced buffer
                 try {
-                    const res = await fetch(objectUrl);
-                    const buf = await res.arrayBuffer();
-                    
-                    this.ctx.decodeAudioData(buf.slice(0), (decoded) => {
-                        cleanup();
-                        resolve(decoded);
-                    }, () => {
-                        console.warn("Generating visible waveform buffer for video file:", blob.name);
-                        cleanup();
-                        resolve(this.createEnvelopeAudioBuffer(duration, sampleRate));
-                    });
+                    if (this.ctx.state === 'suspended') await this.ctx.resume();
+
+                    srcNode = this.ctx.createMediaElementSource(media);
+                    const dest = this.ctx.createMediaStreamDestination(); // NOT connected to speakers
+                    srcNode.connect(dest);
+
+                    let mime = '';
+                    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mime = 'audio/webm;codecs=opus';
+                    else if (MediaRecorder.isTypeSupported('audio/webm')) mime = 'audio/webm';
+                    recorder = new MediaRecorder(dest.stream, mime ? { mimeType: mime } : {});
+                    recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+                    recorder.onstop = async () => {
+                        try {
+                            const rec = new Blob(chunks, { type: recorder.mimeType });
+                            if (rec.size < 100) throw new Error("No audio captured");
+                            const ab = await rec.arrayBuffer();
+                            const decoded = await new Promise((res, rej) => {
+                                const p = this.ctx.decodeAudioData(ab, res, rej);
+                                if (p && typeof p.then === 'function') p.then(res).catch(rej);
+                            });
+                            done(null, decoded);
+                        } catch (e) {
+                            done(new Error("The video has no audio track to analyse."));
+                        }
+                    };
+
+                    const dur = (isFinite(media.duration) && media.duration > 0) ? media.duration : 600;
+                    timeoutId = setTimeout(() => done(new Error("Timed out while capturing audio.")), dur * 1500 + 30000);
+
+                    if (onProgress) {
+                        progressId = setInterval(() => {
+                            const pct = Math.min(99, Math.floor((media.currentTime / dur) * 100));
+                            onProgress(`Capturing audio track in real time... ${pct}%`);
+                        }, 500);
+                    }
+
+                    media.onended = () => { try { recorder.stop(); } catch (e) { done(e); } };
+                    recorder.start(1000);
+                    await media.play();
                 } catch (e) {
-                    cleanup();
-                    resolve(this.createEnvelopeAudioBuffer(duration, sampleRate));
+                    done(e);
                 }
             };
-
-            media.onerror = () => {
-                cleanup();
-                resolve(this.createEnvelopeAudioBuffer(120, sampleRate));
-            };
-
-            setTimeout(() => {
-                cleanup();
-                resolve(this.createEnvelopeAudioBuffer(120, sampleRate));
-            }, 3000);
         });
-    }
-
-    /**
-     * Helper to create a visible, realistic waveform envelope AudioBuffer if raw decoding is unavailable
-     */
-    createEnvelopeAudioBuffer(durationSec, sampleRate) {
-        const numSamples = Math.ceil(durationSec * sampleRate);
-        const buffer = this.ctx.createBuffer(2, Math.max(numSamples, sampleRate), sampleRate);
-        const ch1 = buffer.getChannelData(0);
-        const ch2 = buffer.getChannelData(1);
-
-        for (let i = 0; i < numSamples; i++) {
-            const t = i / sampleRate;
-            // Modulate realistic voice/music envelope pattern
-            const envelope = (Math.sin(t * 2.5) * 0.4 + Math.sin(t * 12.0) * 0.3 + Math.sin(t * 45.0) * 0.2 + 0.5);
-            const noise = (Math.random() * 2 - 1) * 0.35;
-            const val = Math.max(-0.95, Math.min(0.95, noise * envelope));
-            ch1[i] = val;
-            ch2[i] = val;
-        }
-
-        return buffer;
     }
 
     /**
@@ -352,12 +415,16 @@ class AudioEngine {
             this.mediaRecorder.onstop = async () => {
                 const blob = new Blob(this.recordedChunks, { type: this.mediaRecorder.mimeType });
                 const arrayBuf = await blob.arrayBuffer();
-                const audioBuf = await this.decodeAudio(arrayBuf);
-                
                 // Stop all tracks to release mic
                 stream.getTracks().forEach(track => track.stop());
-                
-                if (onStopCallback) onStopCallback(audioBuf);
+
+                try {
+                    const audioBuf = await this.decodeAudio(arrayBuf);
+                    if (onStopCallback) onStopCallback(audioBuf);
+                } catch (e) {
+                    console.error("Could not decode recording:", e);
+                    alert("The recording could not be decoded. Please try again.");
+                }
             };
 
             this.mediaRecorder.start();
@@ -771,7 +838,9 @@ class AudioEngine {
     }
 
     /**
-     * Export the video timeline and rendered audio buffer as a Video Blob (WebM or MP4) using MediaRecorder.
+     * Export the edited video: the rendered (edited) audio plus the matching video frames.
+     * Frames are driven by the AUDIO clock, so video and sound stay in sync and deleted
+     * gaps are skipped in both.
      * @param {HTMLVideoElement} videoElement
      * @param {Array<Object>} clips
      * @param {AudioBuffer} renderedAudioBuffer
@@ -782,104 +851,115 @@ class AudioEngine {
         if (!videoElement || !videoElement.src) {
             throw new Error("No video file loaded to export.");
         }
+        if (typeof MediaRecorder === 'undefined') {
+            throw new Error("Video export is not supported in this browser.");
+        }
+
+        const width = videoElement.videoWidth || 1280;
+        const height = videoElement.videoHeight || 720;
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+        const bufferSource = audioCtx.createBufferSource();
+        bufferSource.buffer = renderedAudioBuffer;
+        const dest = audioCtx.createMediaStreamDestination();
+        bufferSource.connect(dest);
+
+        const canvasStream = canvas.captureStream(30);
+        const combinedStream = new MediaStream([
+            ...canvasStream.getVideoTracks(),
+            ...dest.stream.getAudioTracks()
+        ]);
+
+        let targetMime = mimeType;
+        if (!MediaRecorder.isTypeSupported(targetMime)) {
+            if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) targetMime = 'video/webm;codecs=vp9,opus';
+            else if (MediaRecorder.isTypeSupported('video/webm')) targetMime = 'video/webm';
+            else if (MediaRecorder.isTypeSupported('video/mp4')) targetMime = 'video/mp4';
+        }
+
+        const savedTime = videoElement.currentTime;
+        const savedMuted = videoElement.muted;
+        videoElement.muted = true;
+        videoElement.pause();
+
+        const activeClips = clips.filter(c => !c.deleted).sort((a, b) => a.timelineStart - b.timelineStart);
+        const duration = renderedAudioBuffer.duration;
 
         return new Promise((resolve, reject) => {
-            try {
-                const width = videoElement.videoWidth || 1280;
-                const height = videoElement.videoHeight || 720;
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
+            const recordedChunks = [];
+            const recorder = new MediaRecorder(combinedStream, { mimeType: targetMime });
+            let tick = null;
+            let finished = false;
 
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const bufferSource = audioCtx.createBufferSource();
-                bufferSource.buffer = renderedAudioBuffer;
+            const restore = () => {
+                clearInterval(tick);
+                try { videoElement.pause(); } catch (e) {}
+                videoElement.playbackRate = 1;
+                videoElement.muted = savedMuted;
+                videoElement.currentTime = savedTime;
+                audioCtx.close();
+            };
 
-                const dest = audioCtx.createMediaStreamDestination();
-                bufferSource.connect(dest);
+            recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
+            recorder.onstop = () => {
+                restore();
+                resolve(new Blob(recordedChunks, { type: targetMime.split(';')[0] }));
+            };
+            recorder.onerror = (e) => { restore(); reject(e.error || e); };
 
-                const canvasStream = canvas.captureStream(30);
-                const combinedStream = new MediaStream([
-                    ...canvasStream.getVideoTracks(),
-                    ...dest.stream.getAudioTracks()
-                ]);
+            const finish = () => {
+                if (finished) return;
+                finished = true;
+                clearInterval(tick);
+                try { bufferSource.stop(); } catch (err) {}
+                if (recorder.state !== 'inactive') recorder.stop();
+            };
 
-                let targetMime = mimeType;
-                if (!MediaRecorder.isTypeSupported(targetMime)) {
-                    if (MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')) {
-                        targetMime = 'video/webm;codecs=vp9,opus';
-                    } else if (MediaRecorder.isTypeSupported('video/webm')) {
-                        targetMime = 'video/webm';
-                    } else if (MediaRecorder.isTypeSupported('video/mp4')) {
-                        targetMime = 'video/mp4';
+            recorder.start(500);
+            const t0 = audioCtx.currentTime;
+            bufferSource.start(0);
+
+            let lastClipId = null;
+            tick = setInterval(() => {
+                const t = audioCtx.currentTime - t0;
+                if (t >= duration) { finish(); return; }
+
+                const activeClip = activeClips.find(c => {
+                    const clipDur = (c.originalEnd - c.originalStart) / (c.speed || 1.0);
+                    return t >= c.timelineStart && t < c.timelineStart + clipDur;
+                });
+
+                if (activeClip) {
+                    const speed = activeClip.speed || 1.0;
+                    const target = activeClip.originalStart + (t - activeClip.timelineStart) * speed;
+                    const rate = Math.min(16, Math.max(0.0625, speed));
+                    if (videoElement.playbackRate !== rate) videoElement.playbackRate = rate;
+
+                    // Re-seek on clip change (e.g. a gap was deleted) or when drifting from the audio clock
+                    if (lastClipId !== activeClip.id || Math.abs(videoElement.currentTime - target) > 0.2) {
+                        videoElement.currentTime = target;
+                        lastClipId = activeClip.id;
                     }
-                }
-
-                const recorder = new MediaRecorder(combinedStream, { mimeType: targetMime });
-                const recordedChunks = [];
-
-                recorder.ondataavailable = (e) => {
-                    if (e.data.size > 0) recordedChunks.push(e.data);
-                };
-
-                recorder.onstop = () => {
-                    audioCtx.close();
-                    const blob = new Blob(recordedChunks, { type: targetMime });
-                    resolve(blob);
-                };
-
-                recorder.onerror = (e) => reject(e);
-
-                const duration = renderedAudioBuffer.duration;
-                const fps = 30;
-                const intervalSec = 1 / fps;
-                let currentTime = 0;
-
-                recorder.start();
-                bufferSource.start(0);
-
-                const activeClips = clips.filter(c => !c.deleted).sort((a, b) => a.timelineStart - b.timelineStart);
-
-                const processFrame = () => {
-                    if (currentTime >= duration) {
-                        recorder.stop();
-                        try { bufferSource.stop(); } catch (err) {}
-                        return;
-                    }
-
-                    const activeClip = activeClips.find(c => {
-                        const clipDur = (c.originalEnd - c.originalStart) / (c.speed || 1.0);
-                        return currentTime >= c.timelineStart && currentTime < c.timelineStart + clipDur;
-                    });
-
-                    if (activeClip) {
-                        const speed = activeClip.speed || 1.0;
-                        const timeOffset = currentTime - activeClip.timelineStart;
-                        const videoTime = activeClip.originalStart + timeOffset * speed;
-                        videoElement.currentTime = videoTime;
+                    if (videoElement.paused) videoElement.play().catch(() => {});
+                    if (videoElement.readyState >= 2 && !videoElement.seeking) {
                         ctx.drawImage(videoElement, 0, 0, width, height);
-                    } else {
-                        ctx.fillStyle = '#0a0a0a';
-                        ctx.fillRect(0, 0, width, height);
-                        ctx.fillStyle = '#ff0033';
-                        ctx.font = 'bold 24px Outfit, sans-serif';
-                        ctx.textAlign = 'center';
-                        ctx.fillText('Silence Gap', width / 2, height / 2);
                     }
-
-                    currentTime += intervalSec;
-                    setTimeout(processFrame, intervalSec * 1000);
-                };
-
-                processFrame();
-            } catch (err) {
-                reject(err);
-            }
+                } else {
+                    // Inserted silence (no source clip): hold a black frame
+                    if (!videoElement.paused) videoElement.pause();
+                    lastClipId = null;
+                    ctx.fillStyle = '#0a0a0a';
+                    ctx.fillRect(0, 0, width, height);
+                }
+            }, 1000 / 30);
         });
     }
 }
 
 // Export to window
 window.audioEngine = new AudioEngine();
-
